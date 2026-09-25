@@ -118,6 +118,12 @@
 <p>With both open items resolved, the brief is now treated as frozen: further decisions and research get logged here, not by editing it.</p>
 </div>
 
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>FSM diagram correctness bugs, caught by external review</h3>
+<p>An independent review of the newly-rebuilt diagram (run through a separate Claude session) found three real correctness errors, all traced to the same root cause: the diagram had drawn "In Progress" as several separate boxes spread across a branching column layout, when the actual finite state machine (<code>src/wjfyp/orchestrator/fsm.py</code>) has exactly one <code>IN_PROGRESS</code> state with four incoming transitions and two outgoing ones. Specifically: the <code>changes_requested</code> transition was visually stacked beneath the failed-test retry column, making it look like it originated from a failed test rather than from Review; neither retry-loop re-entry into In Progress showed the <code>code_submission</code> transition looping back to Awaiting Test; and the escalation section opened with its own visually disconnected In Progress box instead of referencing the same state shown earlier in the diagram.</p>
+<p>This is a useful lesson distinct from a design change: a branching box-grid layout is the wrong shape for any state that has multiple incoming edges feeding back into itself, since drawing it more than once inevitably implies it's a different state each time. The fix was a redesign, not a content correction — a single-column main path where every state appears exactly once, followed by an explicit list of every loop-back and exception transition as "A → (trigger) → B" rows, each noting which arrow in the main path it re-enters at. This is a straightforward correctness fix to how an already-decided architecture is depicted, not a new design decision, so it did not reopen the brief's frozen status.</p>
+</div>
+
 <h2>Open Items Carried Forward</h2>
 <ol>
   <li>Ziyang's reply on evaluation scope/rigor (email sent 25/09/2026) — tracked here regardless of outcome; does not require reopening the brief.</li>
