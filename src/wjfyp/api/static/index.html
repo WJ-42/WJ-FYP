@@ -60,6 +60,9 @@
   .card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; font-size: 13px; }
   .card:hover { border-color: var(--accent); }
   .card .id { color: var(--muted); font-size: 11px; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 4px; }
+  .badge.waiting { background: #4a3a10; color: #f2b84b; }
+  .badge.decided { background: #123a2a; color: #4bd08a; }
 
   /* Thread modal */
   #modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; }
@@ -69,6 +72,39 @@
   #modal-title { font-size: 14px; font-weight: 600; }
   #modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
   #modal-thread { overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  #modal-decision { border-top: 1px solid var(--border); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  #modal-decision .prompt { font-size: 12px; color: var(--muted); }
+  #modal-decision textarea {
+    width: 100%; min-height: 56px; resize: vertical; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-family: inherit; font-size: 13px;
+  }
+  #modal-decision .buttons { display: flex; gap: 8px; }
+  #modal-decision button {
+    background: var(--accent); color: white; border: none; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  #modal-decision button.secondary { background: none; border: 1px solid var(--border); color: var(--text); }
+  #modal-decision .status { font-size: 12px; color: var(--muted); }
+
+  /* Roles */
+  #roles { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .role-row {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px; font-size: 13px;
+  }
+  .role-row .name { font-weight: 600; }
+  .role-row .meta { color: var(--muted); font-size: 11px; }
+  .role-row .preset-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; }
+  .role-row button { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  #role-form { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  #role-form h3 { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+  #role-form .row { display: flex; gap: 8px; }
+  #role-form input {
+    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit;
+  }
+  #role-form button { align-self: flex-start; background: var(--accent); color: white; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  #role-form .error { color: #e06767; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -77,11 +113,32 @@
   <nav>
     <button id="tab-feed" class="active">Chat Feed</button>
     <button id="tab-kanban">Kanban</button>
+    <button id="tab-roles">Roles</button>
   </nav>
 </header>
 <main>
   <section id="view-feed" class="view active"><div id="feed"></div></section>
   <section id="view-kanban" class="view"><div id="board"></div></section>
+  <section id="view-roles" class="view">
+    <div id="roles">
+      <div id="role-list"></div>
+      <form id="role-form">
+        <h3>Add a custom role</h3>
+        <div class="row">
+          <input id="role-id" placeholder="id (e.g. reviewer)" required />
+          <input id="role-name" placeholder="name (e.g. Reviewer)" required />
+        </div>
+        <div class="row">
+          <input id="role-tier" type="number" placeholder="tier" required />
+          <input id="role-model" placeholder="model" required />
+          <input id="role-count" type="number" placeholder="count" value="1" />
+        </div>
+        <input id="role-personality" placeholder="personality (optional)" />
+        <div id="role-form-error" class="error"></div>
+        <button type="submit">Create role</button>
+      </form>
+    </div>
+  </section>
 </main>
 
 <div id="modal-backdrop">
@@ -91,6 +148,7 @@
       <button id="modal-close">&times;</button>
     </header>
     <div id="modal-thread"></div>
+    <div id="modal-decision" style="display:none;"></div>
   </div>
 </div>
 
@@ -121,6 +179,21 @@ async function loadFeed() {
 const boardEl = document.getElementById("board");
 let ticketsById = {};
 
+// Which decisions are valid from a paused ticket's status, matching
+// fsm.py's requires_approval transitions exactly - if that table ever
+// changes, this needs to change with it (there's no API to discover
+// this dynamically, since the FSM lives entirely server-side).
+const DECISION_OPTIONS = {
+  review: [
+    { trigger: "approved", label: "Approve" },
+    { trigger: "changes_requested", label: "Request Changes", notes: true },
+  ],
+  escalated: [
+    { trigger: "cto_override", label: "Override & Retry" },
+    { trigger: "cto_cannot_resolve", label: "Halt" },
+  ],
+};
+
 function renderBoard() {
   boardEl.innerHTML = "";
   const byStatus = {};
@@ -134,7 +207,13 @@ function renderBoard() {
     byStatus[status].forEach(t => {
       const card = document.createElement("div");
       card.className = "card";
-      card.innerHTML = `<div class="id">${t.id}</div><div>${t.title}</div>`;
+      let badge = "";
+      if (t.pending_trigger) {
+        badge = t.human_decision
+          ? `<div class="badge decided">decision recorded</div>`
+          : `<div class="badge waiting">awaiting decision</div>`;
+      }
+      card.innerHTML = `<div class="id">${t.id}</div><div>${t.title}</div>${badge}`;
       card.onclick = () => openThread(t);
       col.appendChild(card);
     });
@@ -152,25 +231,161 @@ async function loadTickets() {
 const modalBackdrop = document.getElementById("modal-backdrop");
 const modalTitle = document.getElementById("modal-title");
 const modalThread = document.getElementById("modal-thread");
+const modalDecision = document.getElementById("modal-decision");
+let openTicketId = null;
 
 async function openThread(ticket) {
+  openTicketId = ticket.id;
   modalTitle.textContent = `${ticket.id} — ${ticket.title}`;
   modalThread.innerHTML = "";
   const messages = await fetch(`/api/tickets/${ticket.id}/messages`).then(r => r.json());
   messages.forEach(m => modalThread.appendChild(renderMessage(m)));
+  renderDecisionPanel(ticket);
   modalBackdrop.classList.add("open");
 }
-document.getElementById("modal-close").onclick = () => modalBackdrop.classList.remove("open");
-modalBackdrop.onclick = e => { if (e.target === modalBackdrop) modalBackdrop.classList.remove("open"); };
+
+function renderDecisionPanel(ticket) {
+  const options = ticket.pending_trigger ? (DECISION_OPTIONS[ticket.status] || []) : [];
+  if (options.length === 0) {
+    modalDecision.style.display = "none";
+    modalDecision.innerHTML = "";
+    return;
+  }
+  modalDecision.style.display = "flex";
+
+  if (ticket.human_decision) {
+    modalDecision.innerHTML = `<div class="status">Decision recorded: <strong>${ticket.human_decision}</strong>${
+      ticket.decision_notes ? ` — "${ticket.decision_notes}"` : ""
+    } — waiting for the orchestrator to pick it up.</div>`;
+    return;
+  }
+
+  modalDecision.innerHTML = `<div class="prompt">Proposed: <strong>${ticket.pending_trigger}</strong> — choose how to respond.</div>`;
+  const notesOption = options.find(o => o.notes);
+  if (notesOption) {
+    const textarea = document.createElement("textarea");
+    textarea.id = "decision-notes";
+    textarea.placeholder = `Notes for ${notesOption.label.toLowerCase()} (optional)`;
+    modalDecision.appendChild(textarea);
+  }
+  const buttons = document.createElement("div");
+  buttons.className = "buttons";
+  options.forEach((option, i) => {
+    const button = document.createElement("button");
+    button.textContent = option.label;
+    if (i > 0) button.classList.add("secondary");
+    button.onclick = () => {
+      const notes = option.notes ? document.getElementById("decision-notes")?.value.trim() || null : null;
+      recordDecision(ticket.id, option.trigger, notes);
+    };
+    buttons.appendChild(button);
+  });
+  modalDecision.appendChild(buttons);
+}
+
+async function recordDecision(ticketId, trigger, notes) {
+  const response = await fetch(`/api/tickets/${ticketId}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trigger, notes }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(`Couldn't record decision: ${body.detail || response.statusText}`);
+    return;
+  }
+  const updated = await response.json();
+  ticketsById[ticketId] = updated;
+  renderBoard();
+  if (openTicketId === ticketId) renderDecisionPanel(updated);
+}
+
+document.getElementById("modal-close").onclick = () => { modalBackdrop.classList.remove("open"); openTicketId = null; };
+modalBackdrop.onclick = e => { if (e.target === modalBackdrop) { modalBackdrop.classList.remove("open"); openTicketId = null; } };
+
+const roleListEl = document.getElementById("role-list");
+let presetIds = new Set();
+
+function renderRoles(roles) {
+  presetIds = new Set(roles.filter(r => r.is_preset).map(r => r.id));
+  roleListEl.innerHTML = "";
+  roles.forEach(role => {
+    const row = document.createElement("div");
+    row.className = "role-row";
+    const tag = role.is_preset ? `<span class="preset-tag">preset</span>` : "";
+    row.innerHTML = `
+      <div>
+        <div class="name">${role.name} <span class="meta">(${role.id})</span> ${tag}</div>
+        <div class="meta">tier ${role.tier} · ${role.model} · ${role.count} instance${role.count === 1 ? "" : "s"}${
+          role.personality ? ` · "${role.personality}"` : ""
+        }</div>
+      </div>`;
+    if (!role.is_preset) {
+      const del = document.createElement("button");
+      del.textContent = "Delete";
+      del.onclick = () => deleteRole(role.id);
+      row.appendChild(del);
+    }
+    roleListEl.appendChild(row);
+  });
+}
+
+async function loadRoles() {
+  const roles = await fetch("/api/roles").then(r => r.json());
+  renderRoles(roles);
+}
+
+async function deleteRole(roleId) {
+  const response = await fetch(`/api/roles/${roleId}`, { method: "DELETE" });
+  if (!response.ok) {
+    alert(`Couldn't delete role: ${response.statusText}`);
+    return;
+  }
+  loadRoles();
+}
+
+const roleFormError = document.getElementById("role-form-error");
+document.getElementById("role-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  roleFormError.textContent = "";
+  const id = document.getElementById("role-id").value.trim();
+  if (presetIds.has(id)) {
+    roleFormError.textContent = `"${id}" is a preset role id and can't be reused.`;
+    return;
+  }
+  const body = {
+    id,
+    name: document.getElementById("role-name").value.trim(),
+    tier: Number(document.getElementById("role-tier").value),
+    model: document.getElementById("role-model").value.trim(),
+    count: Number(document.getElementById("role-count").value) || 1,
+    personality: document.getElementById("role-personality").value.trim() || null,
+  };
+  const response = await fetch("/api/roles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    roleFormError.textContent = errBody.detail || response.statusText;
+    return;
+  }
+  e.target.reset();
+  document.getElementById("role-count").value = 1;
+  loadRoles();
+});
 
 function switchTab(name) {
   document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById(`tab-${name}`).classList.add("active");
   document.getElementById(`view-${name}`).classList.add("active");
+  if (name === "roles") loadRoles();
 }
 document.getElementById("tab-feed").onclick = () => switchTab("feed");
 document.getElementById("tab-kanban").onclick = () => switchTab("kanban");
+document.getElementById("tab-roles").onclick = () => switchTab("roles");
 
 function connectWebSocket() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
@@ -184,15 +399,27 @@ function connectWebSocket() {
     } else if (type === "ticket_update") {
       ticketsById[data.id] = data;
       renderBoard();
+      if (openTicketId === data.id) renderDecisionPanel(data);
     }
   };
   ws.onclose = () => setTimeout(connectWebSocket, 1000);
 }
 
 loadFeed();
-loadTickets();
 connectWebSocket();
 if (location.hash === "#kanban") switchTab("kanban");
+if (location.hash === "#roles") switchTab("roles");
+
+// #ticket:<id> deep-links straight to a ticket's thread (kanban tab,
+// modal open) - useful for bookmarking/sharing a link to a specific
+// ticket, not just a testing convenience.
+loadTickets().then(() => {
+  const match = location.hash.match(/^#ticket:(.+)$/);
+  if (match && ticketsById[match[1]]) {
+    switchTab("kanban");
+    openThread(ticketsById[match[1]]);
+  }
+});
 </script>
 </body>
 </html>
