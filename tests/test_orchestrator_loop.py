@@ -26,6 +26,7 @@ from wjfyp.orchestrator.agent import AgentContext, AgentResponse
 from wjfyp.orchestrator.loop import resume, run
 from wjfyp.sandbox.controller import TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 
 class ScriptedAgent:
@@ -79,6 +80,23 @@ def _sandbox_factory_with_results(results: list[TestResult]):
     return factory
 
 
+def _sandbox_factory_with_hidden_results(results: list[TestResult]):
+    """Like _sandbox_factory_with_results, but scripts run_hidden_tests()
+    instead - and records every sandbox handed out, so a test can assert
+    on what the orchestrator actually called after the run finishes.
+    """
+    remaining = list(results)
+    created: list[FakeSandboxController] = []
+
+    def factory(_ticket: Ticket) -> FakeSandboxController:
+        sandbox = FakeSandboxController(hidden_test_results=[remaining.pop(0)])
+        created.append(sandbox)
+        return sandbox
+
+    factory.created = created  # type: ignore[attr-defined]
+    return factory
+
+
 def _test_result(passed: bool) -> TestResult:
     return TestResult(
         passed=passed,
@@ -123,6 +141,52 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertEqual(self.event_log.get_ticket(ticket.id).status, TicketStatus.DONE)
         # cto x2, product x1, engineering x2, sandbox tool_result x1.
         self.assertEqual(len(self.event_log.get_channel_history(channel.id, 100)), 6)
+
+    def test_hidden_tests_lookup_is_used_at_awaiting_test_instead_of_run_tests(self) -> None:
+        ticket = _make_ticket()
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "approved"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission"],
+        )
+        spec = HiddenTestSpec(
+            test_files={"tests/test_hidden.py": "def test_hidden():\n    assert True\n"},
+            fail_to_pass=["tests/test_hidden.py::test_hidden"],
+            pass_to_pass=["tests/test_existing.py::test_existing"],
+        )
+        hidden_result = TestResult(
+            passed=True,
+            fail_to_pass_total=1,
+            fail_to_pass_passed=1,
+            pass_to_pass_total=1,
+            pass_to_pass_passed=1,
+            output="1 passed",
+        )
+        sandbox_factory = _sandbox_factory_with_hidden_results([hidden_result])
+
+        result = run(
+            ticket,
+            channel,
+            self.event_log,
+            agents,
+            sandbox_factory,
+            settings,
+            hidden_tests=lambda _ticket: spec,
+        )
+
+        self.assertEqual(result.ticket.status, TicketStatus.DONE)
+        # Exactly one sandbox was created for the single attempt, and it
+        # was asked to grade the hidden spec, not the plain run_tests().
+        [sandbox] = sandbox_factory.created  # type: ignore[attr-defined]
+        self.assertEqual(sandbox.hidden_test_specs_seen, [spec])
+        self.assertEqual(sandbox._test_results, [])  # run_tests() was never called
+
+        history = self.event_log.get_channel_history(channel.id, 100)
+        tool_result = next(m for m in history if m.type.value == "tool_result")
+        self.assertIn("FAIL_TO_PASS 1/1", tool_result.content.text)
+        self.assertIn("PASS_TO_PASS 1/1", tool_result.content.text)
 
     def test_retry_cap_exceeded_escalates_instead_of_looping_forever(self) -> None:
         ticket = _make_ticket()

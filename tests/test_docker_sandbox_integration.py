@@ -17,6 +17,7 @@ from pathlib import Path
 from wjfyp.models.ticket import Ticket
 from wjfyp.sandbox.docker_controller import DEFAULT_IMAGE, DockerAttemptSandbox
 from wjfyp.sandbox.git_workspace import GitWorkspace
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 
 def _docker_available() -> bool:
@@ -73,6 +74,29 @@ class DockerAttemptSandboxIntegrationTest(unittest.TestCase):
 
             result = sandbox.run_tests()
             self.assertTrue(result.passed)
+        finally:
+            sandbox.close()
+
+    def test_run_hidden_tests_flips_fail_to_pass_and_keeps_pass_to_pass(self) -> None:
+        ticket = Ticket(id="TCK-2", title="t", description="d", branch_name="ticket/TCK-2")
+        sandbox = DockerAttemptSandbox(ticket, self.workspace)
+        try:
+            spec = HiddenTestSpec(
+                test_files={
+                    "test_hidden.py": (
+                        "def test_new_behaviour():\n"
+                        "    assert True\n"
+                    )
+                },
+                fail_to_pass=["test_hidden.py::test_new_behaviour"],
+                pass_to_pass=["test_sample.py::test_ok"],
+            )
+
+            result = sandbox.run_hidden_tests(spec)
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.fail_to_pass_passed, 1)
+            self.assertEqual(result.pass_to_pass_passed, 1)
         finally:
             sandbox.close()
 

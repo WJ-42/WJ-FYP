@@ -9,6 +9,7 @@ from wjfyp.models.ticket import Ticket
 from wjfyp.sandbox.controller import TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
 from wjfyp.sandbox.git_workspace import GitWorkspace
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 
 class FakeSandboxControllerTest(unittest.TestCase):
@@ -39,6 +40,28 @@ class FakeSandboxControllerTest(unittest.TestCase):
         sandbox = FakeSandboxController(test_results=results)
         self.assertFalse(sandbox.run_tests().passed)
         self.assertTrue(sandbox.run_tests().passed)
+
+    def test_run_hidden_tests_writes_spec_files_and_returns_scripted_result(self) -> None:
+        result = TestResult(
+            passed=True,
+            fail_to_pass_total=1,
+            fail_to_pass_passed=1,
+            pass_to_pass_total=1,
+            pass_to_pass_passed=1,
+            output="pass",
+        )
+        sandbox = FakeSandboxController(hidden_test_results=[result])
+        spec = HiddenTestSpec(
+            test_files={"tests/test_hidden.py": "def test_hidden():\n    assert True\n"},
+            fail_to_pass=["tests/test_hidden.py::test_hidden"],
+            pass_to_pass=[],
+        )
+
+        actual = sandbox.run_hidden_tests(spec)
+
+        self.assertIs(actual, result)
+        self.assertEqual(sandbox.files["tests/test_hidden.py"], spec.test_files["tests/test_hidden.py"])
+        self.assertEqual(sandbox.hidden_test_specs_seen, [spec])
 
     def test_git_commit_returns_distinct_shas(self) -> None:
         sandbox = FakeSandboxController()

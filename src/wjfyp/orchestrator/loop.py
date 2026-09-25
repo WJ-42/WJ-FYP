@@ -11,10 +11,19 @@ from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
 from wjfyp.orchestrator.fsm import active_role, next_state, requires_human_approval
 from wjfyp.sandbox.controller import SandboxController
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 TERMINAL_STATES = {TicketStatus.DONE, TicketStatus.HALTED}
 
 SandboxFactory = Callable[[Ticket], SandboxController]
+
+# Resolves a ticket to its SWE-bench-style hidden test definition, or
+# None outside an evaluation run - see _step_awaiting_test. A callable
+# lookup rather than a Ticket field, matching how sandbox_factory is
+# already threaded through rather than baked into Ticket: hidden tests
+# are an evaluation-harness concern layered on top of the core ticket
+# model, not part of it (see cs3ip-evaluation-detail memory).
+HiddenTestLookup = Callable[[Ticket], "HiddenTestSpec | None"]
 
 # The one trigger the orchestrator itself overrides rather than passing
 # through verbatim: run_tests() always reports a plain pass/fail, but
@@ -72,24 +81,41 @@ def _apply_transition(
 
 
 def _step_awaiting_test(
-    ticket: Ticket, channel: Channel, event_log: EventLog, sandbox: SandboxController
+    ticket: Ticket,
+    channel: Channel,
+    event_log: EventLog,
+    sandbox: SandboxController,
+    hidden_test_spec: HiddenTestSpec | None,
 ) -> StepResult:
     """AWAITING_TEST is a deterministic, system-verified step - not an
     agent turn (confirmed 2026-09-25: letting the engineering agent
     self-report its own test result would make it both author and judge
     of its work, a real task-verification failure mode; see
-    cs3ip-comm-protocol memory). The orchestrator calls the sandbox's
-    run_tests() directly and derives the trigger from the actual result.
+    cs3ip-comm-protocol memory). Outside an evaluation run
+    (hidden_test_spec is None) the orchestrator calls the sandbox's
+    plain run_tests(); inside one it calls run_hidden_tests() instead,
+    which is the only place a ticket's FAIL_TO_PASS/PASS_TO_PASS tests
+    ever get written into the sandbox - never during in_progress, so the
+    engineering agent's own run_tests() tool calls never see them (see
+    HiddenTestSpec's docstring).
     """
-    result = sandbox.run_tests()
+    if hidden_test_spec is not None:
+        result = sandbox.run_hidden_tests(hidden_test_spec)
+    else:
+        result = sandbox.run_tests()
+
+    summary = f"run_tests: {'passed' if result.passed else 'failed'}"
+    if result.fail_to_pass_total or result.pass_to_pass_total:
+        summary += (
+            f" (FAIL_TO_PASS {result.fail_to_pass_passed}/{result.fail_to_pass_total}, "
+            f"PASS_TO_PASS {result.pass_to_pass_passed}/{result.pass_to_pass_total})"
+        )
     message = Message(
         sender=AgentRef(role="system", instance_id="sandbox"),
         channel_id=channel.id,
         type=MessageType.TOOL_RESULT,
         ticket_ref=ticket.id,
-        content=MessageContent(
-            text=f"run_tests: {'passed' if result.passed else 'failed'}\n{result.output}"
-        ),
+        content=MessageContent(text=f"{summary}\n{result.output}"),
     )
     event_log.append_message(message)
 
@@ -113,6 +139,7 @@ def step(
     sandbox_factory: SandboxFactory,
     settings: Settings,
     sandbox: SandboxController | None = None,
+    hidden_tests: HiddenTestLookup | None = None,
 ) -> StepResult:
     """Run exactly one FSM step.
 
@@ -128,7 +155,8 @@ def step(
     `sandbox` is the currently open attempt sandbox, if any (None
     between attempts) - callers driving step-by-step must pass back
     whatever the previous StepResult.sandbox was; run() does this
-    automatically.
+    automatically. `hidden_tests` is None outside an evaluation run;
+    when supplied it's consulted only at awaiting_test.
     """
     if ticket.status in TERMINAL_STATES:
         return StepResult(ticket=ticket, advanced=False, sandbox=sandbox)
@@ -138,7 +166,8 @@ def step(
             raise RuntimeError(
                 f"ticket {ticket.id} reached awaiting_test with no open attempt sandbox"
             )
-        return _step_awaiting_test(ticket, channel, event_log, sandbox)
+        spec = hidden_tests(ticket) if hidden_tests is not None else None
+        return _step_awaiting_test(ticket, channel, event_log, sandbox, spec)
 
     role = active_role(ticket.status)
     agent = _pick_instance(role, agents, ticket)
@@ -183,6 +212,7 @@ def run(
     sandbox_factory: SandboxFactory,
     settings: Settings,
     max_steps: int = 1000,
+    hidden_tests: HiddenTestLookup | None = None,
 ) -> StepResult:
     """Drive a ticket through the FSM until it reaches a terminal state
     or pauses for human approval. `max_steps` is a safety valve against
@@ -195,7 +225,14 @@ def run(
         if result.ticket.status in TERMINAL_STATES:
             return StepResult(ticket=result.ticket, advanced=False)
         result = step(
-            result.ticket, channel, event_log, agents, sandbox_factory, settings, result.sandbox
+            result.ticket,
+            channel,
+            event_log,
+            agents,
+            sandbox_factory,
+            settings,
+            result.sandbox,
+            hidden_tests,
         )
         if not result.advanced:
             return result
@@ -210,6 +247,7 @@ def resume(
     agents: dict[str, list[Agent]],
     sandbox_factory: SandboxFactory,
     settings: Settings,
+    hidden_tests: HiddenTestLookup | None = None,
 ) -> StepResult:
     """Apply a human's confirm/reject/redirect decision for a ticket
     paused at a requires_approval transition, then continue the loop.
@@ -221,4 +259,4 @@ def resume(
     through here.
     """
     ticket = _apply_transition(ticket, trigger, event_log)
-    return run(ticket, channel, event_log, agents, sandbox_factory, settings)
+    return run(ticket, channel, event_log, agents, sandbox_factory, settings, hidden_tests=hidden_tests)

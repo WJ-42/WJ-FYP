@@ -10,6 +10,8 @@ import docker
 from wjfyp.models.ticket import Ticket
 from wjfyp.sandbox.controller import CommandResult, TestResult
 from wjfyp.sandbox.git_workspace import GitWorkspace
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
+from wjfyp.sandbox.pytest_output import parse_pytest_verbose_output
 
 # Placeholder, same status as config/roles.yaml's TBD-* model fields -
 # see docker/sandbox.Dockerfile for what it needs to contain and why.
@@ -66,11 +68,11 @@ class DockerAttemptSandbox:
         return self._exec(cmd)
 
     def run_tests(self) -> TestResult:
-        # Placeholder scoring until the evaluation harness (KAN-19) wires
-        # real per-ticket FAIL_TO_PASS/PASS_TO_PASS test-pair definitions
-        # (see cs3ip-evaluation-detail memory) - for now a clean pytest
-        # exit code is the only signal available, so the FAIL_TO_PASS/
-        # PASS_TO_PASS counts are left at zero rather than faked.
+        # Agent-visible check only - runs whatever tests already live in
+        # the repo, no FAIL_TO_PASS/PASS_TO_PASS breakdown. The
+        # authoritative hidden-test verification the orchestrator relies
+        # on at awaiting_test is run_hidden_tests(), never this method
+        # (see HiddenTestSpec's docstring for why that separation matters).
         result = self._exec("python -m pytest -q")
         return TestResult(
             passed=result.exit_code == 0,
@@ -78,6 +80,31 @@ class DockerAttemptSandbox:
             fail_to_pass_passed=0,
             pass_to_pass_total=0,
             pass_to_pass_passed=0,
+            output=result.stdout,
+        )
+
+    def run_hidden_tests(self, spec: HiddenTestSpec) -> TestResult:
+        for path, content in spec.test_files.items():
+            self.write_file(path, content)
+
+        node_ids = spec.fail_to_pass + spec.pass_to_pass
+        cmd = "python -m pytest -v --no-header -p no:cacheprovider " + " ".join(
+            shlex.quote(node_id) for node_id in node_ids
+        )
+        result = self._exec(cmd)
+        outcomes = parse_pytest_verbose_output(result.stdout)
+
+        fail_to_pass_passed = sum(1 for node_id in spec.fail_to_pass if outcomes.get(node_id))
+        pass_to_pass_passed = sum(1 for node_id in spec.pass_to_pass if outcomes.get(node_id))
+        passed = fail_to_pass_passed == len(spec.fail_to_pass) and pass_to_pass_passed == len(
+            spec.pass_to_pass
+        )
+        return TestResult(
+            passed=passed,
+            fail_to_pass_total=len(spec.fail_to_pass),
+            fail_to_pass_passed=fail_to_pass_passed,
+            pass_to_pass_total=len(spec.pass_to_pass),
+            pass_to_pass_passed=pass_to_pass_passed,
             output=result.stdout,
         )
 

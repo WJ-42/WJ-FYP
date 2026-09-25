@@ -4,6 +4,8 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
+from wjfyp.sandbox.hidden_tests import HiddenTestSpec
+
 
 class CommandResult(BaseModel):
     exit_code: int
@@ -43,6 +45,15 @@ class SandboxController(Protocol):
     """
 
     def run_tests(self) -> TestResult: ...
+
+    def run_hidden_tests(self, spec: HiddenTestSpec) -> TestResult:
+        """Authoritative FAIL_TO_PASS/PASS_TO_PASS verification (see
+        cs3ip-evaluation-detail and HiddenTestSpec's docstring). Only the
+        orchestrator's deterministic awaiting_test step calls this -
+        never exposed to an agent as a tool, unlike run_tests().
+        """
+        ...
+
     def run_command(self, cmd: str) -> CommandResult: ...
     def read_file(self, path: str) -> str: ...
     def write_file(self, path: str, content: str) -> None: ...
