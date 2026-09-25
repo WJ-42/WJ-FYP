@@ -8,7 +8,7 @@ This repo holds the code only. Design documentation and project history live on 
 
 - [CS3IP Project Brief](https://finalyearprojectwj.atlassian.net/wiki/spaces/FYP/pages/2293762/CS3IP+Project+Brief), the frozen architecture reference
 - [CS3IP Project Diary](https://finalyearprojectwj.atlassian.net/wiki/spaces/FYP/pages/2326529/CS3IP+Project+Diary), the running log of decisions, research, and scope changes
-- [Jira board](https://finalyearprojectwj.atlassian.net/jira/software/projects/KAN/boards/1), tracking implementation work
+- [Jira board](https://finalyearprojectwj.atlassian.net/jira/software/projects/FYP/boards/1), tracking implementation work
 
 ## Structure
 
