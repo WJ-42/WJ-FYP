@@ -20,6 +20,14 @@ _VERBOSE_RESULT_LINE = re.compile(r"^(?P<node_id>\S+::\S+)\s+(?P<outcome>PASSED|
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from pytest output - exported since more
+    than one caller needs this (see wjfyp.eval.tasks.sde_write_a_unit_test
+    for the other), not just parse_pytest_verbose_output below.
+    """
+    return _ANSI_ESCAPE.sub("", text)
+
+
 def parse_pytest_verbose_output(output: str) -> dict[str, bool]:
     """Map each pytest node id mentioned in `-v` output to whether it
     passed. FAILED/ERROR/SKIPPED all count as not-passed - a skipped
@@ -30,7 +38,7 @@ def parse_pytest_verbose_output(output: str) -> dict[str, bool]:
     """
     outcomes: dict[str, bool] = {}
     for line in output.splitlines():
-        line = _ANSI_ESCAPE.sub("", line).strip()
+        line = strip_ansi(line).strip()
         match = _VERBOSE_RESULT_LINE.match(line)
         if match:
             outcomes[match.group("node_id")] = match.group("outcome") == "PASSED"
