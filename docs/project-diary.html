@@ -124,12 +124,17 @@
 <p>This is a useful lesson distinct from a design change: a branching box-grid layout is the wrong shape for any state that has multiple incoming edges feeding back into itself, since drawing it more than once inevitably implies it's a different state each time. The fix was a redesign, not a content correction — a single-column main path where every state appears exactly once, followed by an explicit list of every loop-back and exception transition as "A → (trigger) → B" rows, each noting which arrow in the main path it re-enters at. This is a straightforward correctness fix to how an already-decided architecture is depicted, not a new design decision, so it did not reopen the brief's frozen status.</p>
 </div>
 
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Remaining research questions resolved as implementation decisions</h3>
+<p>Two questions left open from the earlier research pass were decided: <code>get_channel_history(n)</code> will use naive last-N retrieval rather than Generative Agents' recency/importance/relevance scoring, since this tool is explicitly a fallback path — the handoff note is expected to carry most context, and embedding infrastructure isn't justified for a rarely-invoked exception case. MAST failure-mode tagging will be a hybrid: rule-based wherever the orchestrator's own signal already makes the code unambiguous (e.g. a <code>retry_cap_exceeded</code> firing), an LLM-judge pass for the subtler categories a rule can't reliably distinguish — matching Cemri et al.'s own reasoning for needing a judge at all.</p>
+<p>Neither decision was written into the Project Brief. Both are implementation-level choices sitting underneath something the Brief already covers at a higher level of abstraction without specifying the internals — the Brief mentions the history tool exists without specifying its algorithm, and Section 6.3 explicitly already deferred the tagging-mechanism choice to build time. This surfaced a general rule for the rest of the project: a decision belongs in the Brief only if it's structural (changes what the system does or how its pieces relate); if the Brief already leaves the specific detail open, deciding that detail later is Diary/memory territory, not a Brief edit — otherwise "frozen" would break the moment any implementation decision got made.</p>
+<p>Also adopted without much debate: Agent Laboratory's "repeat with notes" checkpoint option (a free-text field on the kanban "Request Changes" action, not just a bare button) — cheap and clearly an improvement, to be built when the dashboard layer is reached. The comparable-tools research (MetaGPT, SWE-agent, OpenHands, ChatDev, Devin — validation points and documented pitfalls) stays in memory as material for the eventual report's Related Work chapter rather than being forced into either the Brief or a Diary "decision."</p>
+</div>
+
 <h2>Open Items Carried Forward</h2>
 <ol>
   <li>Ziyang's reply on evaluation scope/rigor (email sent 25/09/2026) — tracked here regardless of outcome; does not require reopening the brief.</li>
-  <li>Detailed UI implementation for custom roles/personalities editor, kanban card intervention controls, and the free-text "repeat with notes" option identified from Agent Laboratory.</li>
-  <li>Whether to adopt Generative Agents' recency/importance/relevance scoring for the on-demand channel-history tool, or keep naive last-n truncation — surfaced by research, not yet decided.</li>
-  <li>Whether failure-mode tagging against the MAST codes should be LLM-judged or rule-based — surfaced by research, not yet decided.</li>
+  <li>Detailed UI implementation for custom roles/personalities editor, kanban card intervention controls, and the free-text "repeat with notes" option (now adopted, not yet built).</li>
 </ol>
 
 <footer>
