@@ -10,6 +10,16 @@ from wjfyp.orchestrator.loop import HiddenTestLookup, SandboxFactory, StepResult
 # Same derivation run_eval_task() and every test helper already use:
 # Channel.id is deterministic from ticket.id, so it doesn't need its own
 # persistence - reconstructing it here needs no new EventLog lookup.
+#
+# This assumes ticket-based channel grouping, matching every other call
+# site in the codebase today (see Channel's own docstring: "Default
+# policy for v1 is one channel per ticket"). cs3ip-comm-protocol memory
+# describes role-/feature-based grouping as a future user-selectable
+# option, but nothing anywhere yet actually implements picking a
+# non-ticket-based key - if that lands later, this derivation (and
+# run_eval_task's identical one) would both need a real channel lookup
+# instead, since Channel isn't persisted anywhere queryable by ticket id
+# currently. Not a gap introduced here, just flagging where it would bite.
 def _channel_for(ticket: Ticket) -> Channel:
     return Channel(id=f"channel-{ticket.id}", key=f"ticket:{ticket.id}", ticket_ref=ticket.id)
 

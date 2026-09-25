@@ -29,8 +29,10 @@ class ScriptedAgent:
         self.role = role
         self.instance_id = instance_id
         self._script = list(script)
+        self.received_contexts: list[AgentContext] = []
 
     def invoke(self, context: AgentContext) -> AgentResponse:
+        self.received_contexts.append(context)
         trigger = self._script.pop(0)
         message = Message(
             sender=AgentRef(role=self.role, instance_id=self.instance_id),
@@ -134,6 +136,18 @@ class DriverTest(unittest.TestCase):
 
         history = self.event_log.get_channel_history(channel.id, 100)
         self.assertTrue(any(m.content.text == "add error handling" for m in history))
+        # Not just logged somewhere - actually what the next engineering
+        # turn's default context received, checked directly rather than
+        # via last_handoff() (which would already be stale here: that
+        # same engineering turn logs its own handoff right after,
+        # overwriting it) - same guarantee
+        # test_orchestrator_loop.py's equivalent test pins against
+        # resume() directly; this pins it end to end through the
+        # driver's EventLog-mediated path instead.
+        engineering_agent = agents["engineering"][0]
+        self.assertEqual(
+            engineering_agent.received_contexts[-1].handoff.notes_for_next, "add error handling"
+        )
 
     def _sandbox_factory_with_results(self, results: list[TestResult]):
         remaining = list(results)

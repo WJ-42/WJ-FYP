@@ -6,7 +6,7 @@ from typing import Callable
 from wjfyp.config import Settings
 from wjfyp.eventlog import EventLog
 from wjfyp.models.channel import Channel
-from wjfyp.models.message import AgentRef, Message, MessageContent, MessageType
+from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
 from wjfyp.orchestrator.fsm import active_role, next_state, requires_human_approval
@@ -275,12 +275,19 @@ def resume(
 
     `notes` is the free-text half of the "repeat with notes" option
     (see cs3ip-project-diary memory) - logged as a message on the
-    channel before the transition applies, so the next agent invoked
-    actually sees it (via handoff or get_channel_history), rather than
-    the human's guidance disappearing the moment it's recorded. Only
-    logged when notes are actually given - a plain approve/reject
-    doesn't need a message of its own beyond the agent turns already
-    logged.
+    channel before the transition applies, carrying its own HandoffNote
+    so it's what last_handoff() returns for the very next agent turn -
+    not just appended to the channel history (an agent's default
+    AgentContext.handoff is the ONLY thing guaranteed seen; text-only
+    messages with no handoff attached are invisible there and only
+    reachable via get_channel_history(), an explicit fallback agents
+    aren't guaranteed to call). A first attempt at this logged a
+    handoff-less message and would have silently dropped the human's
+    guidance for any agent that didn't happen to fall back to channel
+    history - caught reviewing this layer, fixed before it shipped
+    without a test that would have caught it. Only logged when notes
+    are actually given - a plain approve/reject doesn't need a message
+    of its own beyond the agent turns already logged.
     """
     if notes:
         event_log.append_message(
@@ -289,7 +296,14 @@ def resume(
                 channel_id=channel.id,
                 type=MessageType.REVIEW_FEEDBACK,
                 ticket_ref=ticket.id,
-                content=MessageContent(text=notes),
+                content=MessageContent(
+                    text=notes,
+                    handoff=HandoffNote(
+                        done="Human reviewed and requested changes.",
+                        remaining="Address the feedback below and resubmit.",
+                        notes_for_next=notes,
+                    ),
+                ),
             )
         )
     ticket = _apply_transition(ticket, trigger, event_log)

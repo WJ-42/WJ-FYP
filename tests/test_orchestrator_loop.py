@@ -39,8 +39,13 @@ class ScriptedAgent:
         self.role = role
         self.instance_id = instance_id
         self._script = list(script)
+        # Every AgentContext this agent was actually invoked with, in
+        # order - lets a test check what a specific turn received (e.g.
+        # its handoff) rather than only what got appended to the log.
+        self.received_contexts: list[AgentContext] = []
 
     def invoke(self, context: AgentContext) -> AgentResponse:
+        self.received_contexts.append(context)
         trigger = self._script.pop(0)
         message = Message(
             sender=AgentRef(role=self.role, instance_id=self.instance_id),
@@ -271,6 +276,26 @@ class OrchestratorLoopTest(unittest.TestCase):
         history = self.event_log.get_channel_history(channel.id, 100)
         notes_message = next(m for m in history if m.content.text == "please also add a docstring")
         self.assertEqual(notes_message.sender.role, "human")
+
+        # And critically: it's what the very next agent turn's default
+        # context actually receives (engineering, since resume() drove
+        # the ticket straight through in_progress again before pausing
+        # at review a second time) - not just present somewhere in
+        # get_channel_history's fallback path. Checking received context
+        # directly, not last_handoff() after the fact: by the time this
+        # test reaches here, engineering's own turn has since logged its
+        # own handoff (as does the CTO's next proposal), which would
+        # overwrite what last_handoff() returns - the guarantee that
+        # matters is what THIS turn received, not the log's current
+        # tail. A message with no handoff attached is invisible to
+        # last_handoff() entirely - a first cut of this feature logged
+        # text-only and would have silently dropped the notes for any
+        # agent that didn't explicitly fall back to channel history.
+        engineering_agent = agents["engineering"][0]
+        self.assertEqual(len(engineering_agent.received_contexts), 3)  # 2 from the initial run, 1 after resume
+        self.assertEqual(
+            engineering_agent.received_contexts[-1].handoff.notes_for_next, "please also add a docstring"
+        )
 
         final = resume(
             confirmed.ticket,
