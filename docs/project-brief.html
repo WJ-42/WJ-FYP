@@ -29,10 +29,12 @@
   .fsm-node.terminal { border-color: #1b5e20; color: #1b5e20; }
   .fsm-node.halt { border-color: #a12a2a; color: #a12a2a; }
   .fsm-arrow { font-size: 8.3pt; color: #555; text-align: center; line-height: 1.25; margin: 1px 0; }
-  .fsm-branch { display: flex; gap: 28px; justify-content: center; width: 100%; margin-top: 2px; }
-  .fsm-branch-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; max-width: 45%; }
   .fsm-note { font-size: 8pt; color: #777; text-align: center; }
-  .fsm-sub-title { font-size: 8.5pt; color: #666; font-weight: bold; margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 8px; width: 100%; text-align: center; }
+  .fsm-rules-title { font-size: 8.5pt; color: #666; font-weight: bold; margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 8px; width: 100%; text-align: center; }
+  .fsm-rule-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px; }
+  .fsm-node.small { padding: 3px 10px; font-size: 8.8pt; }
+  .fsm-rule-arrow { font-size: 8.3pt; color: #555; white-space: nowrap; }
+  .fsm-note.inline { text-align: left; margin-left: 4px; }
   .section { page-break-inside: avoid; }
   .status-done { color: #1b5e20; font-weight: bold; }
   .status-pending { color: #a15c00; font-weight: bold; }
@@ -154,44 +156,34 @@ MessageType = status_update | question | handoff | code_submission
   <div class="fsm-node">Specd</div>
   <div class="fsm-arrow">↓ assigned</div>
   <div class="fsm-node">In Progress</div>
+  <div class="fsm-note">(a single state, re-entered by every loop-back rule below — never duplicated)</div>
   <div class="fsm-arrow">↓ code_submission</div>
   <div class="fsm-node">Awaiting Test</div>
-  <div class="fsm-branch">
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ tests_passed</div>
-      <div class="fsm-node">Review</div>
-    </div>
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ tests_failed</div>
-      <div class="fsm-node">In Progress</div>
-      <div class="fsm-note">(retry loop, capped at 3 attempts)</div>
-    </div>
-  </div>
-  <div class="fsm-branch">
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ approved</div>
-      <div class="fsm-node terminal">Done</div>
-      <div class="fsm-note">(this transition IS the merge)</div>
-    </div>
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ changes_requested</div>
-      <div class="fsm-node">In Progress</div>
-    </div>
-  </div>
+  <div class="fsm-arrow">↓ tests_passed</div>
+  <div class="fsm-node">Review</div>
+  <div class="fsm-arrow">↓ approved</div>
+  <div class="fsm-node terminal">Done</div>
+  <div class="fsm-note">(this transition IS the merge)</div>
 
-  <div class="fsm-sub-title">Escalation path (after 3 failed test cycles on the same ticket)</div>
-  <div class="fsm-node">In Progress</div>
-  <div class="fsm-arrow">↓ retry_cap_exceeded</div>
-  <div class="fsm-node">Escalated</div>
-  <div class="fsm-branch">
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ cto_override</div>
-      <div class="fsm-node">In Progress</div>
-    </div>
-    <div class="fsm-branch-col">
-      <div class="fsm-arrow">↓ cto_cannot_resolve</div>
-      <div class="fsm-node halt">Halted</div>
-    </div>
+  <div class="fsm-rules-title">Loops and escalation — every "In Progress" and "Escalated" reference below is the same state shown above</div>
+  <div class="fsm-rule-row">
+    <span class="fsm-node small">Awaiting Test</span><span class="fsm-rule-arrow">→ tests_failed →</span><span class="fsm-node small">In Progress</span>
+    <span class="fsm-note inline">retry loop, capped at 3 attempts; re-enters at "↓ code_submission" above</span>
+  </div>
+  <div class="fsm-rule-row">
+    <span class="fsm-node small">Review</span><span class="fsm-rule-arrow">→ changes_requested →</span><span class="fsm-node small">In Progress</span>
+    <span class="fsm-note inline">re-enters at "↓ code_submission" above</span>
+  </div>
+  <div class="fsm-rule-row">
+    <span class="fsm-node small">In Progress</span><span class="fsm-rule-arrow">→ retry_cap_exceeded →</span><span class="fsm-node small">Escalated</span>
+    <span class="fsm-note inline">fires instead of another retry once the cap above is hit</span>
+  </div>
+  <div class="fsm-rule-row">
+    <span class="fsm-node small">Escalated</span><span class="fsm-rule-arrow">→ cto_override →</span><span class="fsm-node small">In Progress</span>
+    <span class="fsm-note inline">re-enters at "↓ code_submission" above</span>
+  </div>
+  <div class="fsm-rule-row">
+    <span class="fsm-node small">Escalated</span><span class="fsm-rule-arrow">→ cto_cannot_resolve →</span><span class="fsm-node halt small">Halted</span>
   </div>
 </div>
 <table class="data">
