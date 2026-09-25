@@ -235,11 +235,18 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertFalse(paused.advanced)
         self.assertEqual(paused.ticket.status, TicketStatus.REVIEW)
         self.assertEqual(paused.paused_trigger, "changes_requested")
+        # Persisted, not just returned - a separate dashboard process
+        # reading the event log needs to see this too (cs3ip-comm-
+        # protocol memory: orchestrator and dashboard are separate
+        # processes sharing only the datastore).
+        self.assertEqual(paused.ticket.pending_trigger, "changes_requested")
+        self.assertEqual(self.event_log.get_ticket(ticket.id).pending_trigger, "changes_requested")
 
-        # A human confirms the proposed trigger; the loop continues,
-        # sends the ticket through another in_progress/awaiting_test
-        # pass (a brand new sandbox for that attempt), and pauses again
-        # at the next requires_approval gate.
+        # A human confirms the proposed trigger, with notes attached
+        # ("repeat with notes" - cs3ip-project-diary memory); the loop
+        # continues, sends the ticket through another in_progress/
+        # awaiting_test pass (a brand new sandbox for that attempt), and
+        # pauses again at the next requires_approval gate.
         confirmed = resume(
             paused.ticket,
             "changes_requested",
@@ -248,10 +255,22 @@ class OrchestratorLoopTest(unittest.TestCase):
             agents,
             sandbox_factory,
             settings,
+            notes="please also add a docstring",
         )
         self.assertFalse(confirmed.advanced)
         self.assertEqual(confirmed.ticket.status, TicketStatus.REVIEW)
         self.assertEqual(confirmed.paused_trigger, "approved")
+        # pending_trigger from the first pause was cleared by the
+        # transition resume() just applied, then set fresh for the
+        # second pause - never both at once.
+        self.assertEqual(confirmed.ticket.pending_trigger, "approved")
+        self.assertIsNone(confirmed.ticket.human_decision)
+
+        # The notes got logged as a real message the next agent turn
+        # could see, not silently dropped.
+        history = self.event_log.get_channel_history(channel.id, 100)
+        notes_message = next(m for m in history if m.content.text == "please also add a docstring")
+        self.assertEqual(notes_message.sender.role, "human")
 
         final = resume(
             confirmed.ticket,
@@ -264,6 +283,10 @@ class OrchestratorLoopTest(unittest.TestCase):
         )
         self.assertFalse(final.advanced)
         self.assertEqual(final.ticket.status, TicketStatus.DONE)
+        # Fully resolved - nothing pending left on a Done ticket.
+        self.assertIsNone(final.ticket.pending_trigger)
+        self.assertIsNone(final.ticket.human_decision)
+        self.assertIsNone(final.ticket.decision_notes)
 
 
 if __name__ == "__main__":

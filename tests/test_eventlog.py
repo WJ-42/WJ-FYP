@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from wjfyp.eventlog import EventLog
+from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import (
     AgentRef,
     HandoffNote,
@@ -109,6 +110,61 @@ class EventLogTest(unittest.TestCase):
 
     def test_latest_message_rowid_is_zero_when_empty(self) -> None:
         self.assertEqual(self.log.latest_message_rowid(), 0)
+
+    def test_record_decision_updates_the_persisted_ticket(self) -> None:
+        ticket = Ticket(id="TCK-1", title="t", description="d", pending_trigger="approved")
+        self.log.save_ticket(ticket)
+
+        updated = self.log.record_decision("TCK-1", "approved", notes="looks good")
+
+        self.assertEqual(updated.human_decision, "approved")
+        self.assertEqual(updated.decision_notes, "looks good")
+        self.assertEqual(self.log.get_ticket("TCK-1").human_decision, "approved")
+
+    def test_record_decision_on_unknown_ticket_raises(self) -> None:
+        with self.assertRaises(KeyError):
+            self.log.record_decision("no-such-ticket", "approved")
+
+
+class CustomRoleStoreTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.log = EventLog(Path(self._tmpdir.name) / "eventlog.db")
+        self.addCleanup(self.log.close)
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def _role(self, role_id: str = "reviewer") -> RoleConfig:
+        return RoleConfig(id=role_id, name="Reviewer", tier=2, model="TBD", personality="terse", is_preset=False)
+
+    def test_save_and_get_round_trip(self) -> None:
+        self.log.save_custom_role(self._role())
+        role = self.log.get_custom_role("reviewer")
+        self.assertEqual(role.name, "Reviewer")
+        self.assertEqual(role.personality, "terse")
+
+    def test_get_missing_role_returns_none(self) -> None:
+        self.assertIsNone(self.log.get_custom_role("no-such-role"))
+
+    def test_save_upserts_on_id(self) -> None:
+        self.log.save_custom_role(self._role())
+        self.log.save_custom_role(self._role().model_copy(update={"name": "Renamed"}))
+        roles = self.log.list_custom_roles()
+        self.assertEqual(len(roles), 1)
+        self.assertEqual(roles[0].name, "Renamed")
+
+    def test_list_returns_every_saved_role(self) -> None:
+        self.log.save_custom_role(self._role("reviewer"))
+        self.log.save_custom_role(self._role("tester"))
+        ids = {r.id for r in self.log.list_custom_roles()}
+        self.assertEqual(ids, {"reviewer", "tester"})
+
+    def test_delete_returns_true_when_a_row_was_removed(self) -> None:
+        self.log.save_custom_role(self._role())
+        self.assertTrue(self.log.delete_custom_role("reviewer"))
+        self.assertEqual(self.log.list_custom_roles(), [])
+
+    def test_delete_returns_false_when_nothing_to_remove(self) -> None:
+        self.assertFalse(self.log.delete_custom_role("no-such-role"))
 
 
 if __name__ == "__main__":

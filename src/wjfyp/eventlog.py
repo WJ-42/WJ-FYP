@@ -4,6 +4,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import HandoffNote, Message
 from wjfyp.models.ticket import Ticket
 
@@ -21,6 +22,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, timestam
 CREATE TABLE IF NOT EXISTS tickets (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS custom_roles (
+    id TEXT PRIMARY KEY,
     data TEXT NOT NULL
 );
 """
@@ -124,6 +130,57 @@ class EventLog:
         with self._lock:
             rows = self._conn.execute("SELECT data FROM tickets").fetchall()
         return [Ticket.model_validate_json(row[0]) for row in rows]
+
+    def save_custom_role(self, role: RoleConfig) -> None:
+        """Persists one user-created role. Preset roles from
+        config/roles.yaml never go through here - see
+        wjfyp.config.list_all_roles, which is the merge point between
+        this store and that file (per config.py's own docstring: custom
+        roles live in a persisted store, not roles.yaml).
+        """
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO custom_roles (id, data) VALUES (?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+                (role.id, role.model_dump_json()),
+            )
+            self._conn.commit()
+
+    def get_custom_role(self, role_id: str) -> RoleConfig | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data FROM custom_roles WHERE id = ?", (role_id,)
+            ).fetchone()
+        return RoleConfig.model_validate_json(row[0]) if row else None
+
+    def list_custom_roles(self) -> list[RoleConfig]:
+        with self._lock:
+            rows = self._conn.execute("SELECT data FROM custom_roles").fetchall()
+        return [RoleConfig.model_validate_json(row[0]) for row in rows]
+
+    def delete_custom_role(self, role_id: str) -> bool:
+        """Returns whether a row was actually deleted, so callers (the
+        API) can tell "already gone" apart from "just removed it".
+        """
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM custom_roles WHERE id = ?", (role_id,))
+            self._conn.commit()
+        return cursor.rowcount > 0
+
+    def record_decision(self, ticket_id: str, trigger: str, notes: str | None = None) -> Ticket:
+        """Records a human's response to a ticket paused for
+        intervention-mode approval (see Ticket.pending_trigger). Doesn't
+        apply the transition itself - that's the orchestrator driver's
+        job (wjfyp.orchestrator.driver.apply_pending_decisions), which
+        may run in a separate process and only sees this via the shared
+        datastore, same as everything else in EventLog.
+        """
+        ticket = self.get_ticket(ticket_id)
+        if ticket is None:
+            raise KeyError(f"no such ticket: {ticket_id!r}")
+        ticket = ticket.model_copy(update={"human_decision": trigger, "decision_notes": notes})
+        self.save_ticket(ticket)
+        return ticket
 
     def get_messages_for_ticket(self, ticket_id: str) -> list[Message]:
         """A ticket's full thread, for the kanban card-to-thread drill-down

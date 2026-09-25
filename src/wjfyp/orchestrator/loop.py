@@ -72,7 +72,16 @@ def _apply_transition(
     ticket: Ticket, trigger: str, event_log: EventLog
 ) -> Ticket:
     new_status = next_state(ticket.status, trigger)
-    updates: dict[str, object] = {"status": new_status}
+    # Any transition actually firing means whatever pause/decision state
+    # was on this ticket has been resolved - clear it unconditionally
+    # rather than only in the resume() path, so it can never linger past
+    # the pause it belonged to (see Ticket.pending_trigger's docstring).
+    updates: dict[str, object] = {
+        "status": new_status,
+        "pending_trigger": None,
+        "human_decision": None,
+        "decision_notes": None,
+    }
     if new_status in _RETRY_RESETTING_STATES:
         updates["retry_count"] = 0
     ticket = ticket.model_copy(update=updates)
@@ -197,6 +206,11 @@ def step(
     if settings.autonomy_mode == "intervention" and requires_human_approval(
         ticket.status, trigger
     ):
+        # Persisted, not just returned in StepResult: the dashboard (a
+        # separate process, per cs3ip-comm-protocol memory) has no other
+        # way to know this ticket is waiting on a human or what was
+        # proposed - see Ticket.pending_trigger's docstring.
+        ticket = ticket.model_copy(update={"pending_trigger": trigger})
         event_log.save_ticket(ticket)
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
@@ -248,6 +262,7 @@ def resume(
     sandbox_factory: SandboxFactory,
     settings: Settings,
     hidden_tests: HiddenTestLookup | None = None,
+    notes: str | None = None,
 ) -> StepResult:
     """Apply a human's confirm/reject/redirect decision for a ticket
     paused at a requires_approval transition, then continue the loop.
@@ -257,6 +272,25 @@ def resume(
     review/escalated, both reached only after awaiting_test has already
     closed that attempt's sandbox, so there's never one to thread
     through here.
+
+    `notes` is the free-text half of the "repeat with notes" option
+    (see cs3ip-project-diary memory) - logged as a message on the
+    channel before the transition applies, so the next agent invoked
+    actually sees it (via handoff or get_channel_history), rather than
+    the human's guidance disappearing the moment it's recorded. Only
+    logged when notes are actually given - a plain approve/reject
+    doesn't need a message of its own beyond the agent turns already
+    logged.
     """
+    if notes:
+        event_log.append_message(
+            Message(
+                sender=AgentRef(role="human", instance_id="dashboard"),
+                channel_id=channel.id,
+                type=MessageType.REVIEW_FEEDBACK,
+                ticket_ref=ticket.id,
+                content=MessageContent(text=notes),
+            )
+        )
     ticket = _apply_transition(ticket, trigger, event_log)
     return run(ticket, channel, event_log, agents, sandbox_factory, settings, hidden_tests=hidden_tests)
