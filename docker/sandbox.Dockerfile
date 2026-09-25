@@ -4,8 +4,8 @@
 # Deps are baked in at BUILD time, not installed at container run time,
 # because attempt containers run with network_disabled=True (no network
 # egress by design). git is required for git_diff/git_commit; pytest is
-# the v1 placeholder test runner until the evaluation harness (KAN-19)
-# wires real per-ticket test commands.
+# also what the evaluation harness's run_hidden_tests() shells out to
+# for FAIL_TO_PASS/PASS_TO_PASS verification (see src/wjfyp/eval/).
 #
 # The Python/pytest stack here is a placeholder, same status as the
 # TBD-* model fields in config/roles.yaml - it reflects what this repo
@@ -24,6 +24,16 @@ RUN apt-get update \
 
 RUN useradd --create-home --shell /bin/sh sandbox
 USER sandbox
+# Without this, `git commit` inside the container fails with "Author
+# identity unknown" (exit 128) - confirmed by direct reproduction
+# 2026-09-25, the first time this image ran against a real Docker
+# daemon (Docker access was broken until FYP-22). git_commit()'s own
+# lack of exit-code checking meant this failed completely silently:
+# no error, no exception, just a stale HEAD sha returned as if the
+# commit had succeeded. See the fix in docker_controller.py alongside
+# this for the other half.
+RUN git config --global user.email "agent@wjfyp.local" \
+    && git config --global user.name "WJ-FYP Engineering Agent"
 WORKDIR /workspace
 
 CMD ["sleep", "infinity"]

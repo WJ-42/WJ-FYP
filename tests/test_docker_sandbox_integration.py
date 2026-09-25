@@ -77,6 +77,39 @@ class DockerAttemptSandboxIntegrationTest(unittest.TestCase):
         finally:
             sandbox.close()
 
+    def test_git_commit_pushes_back_to_the_host_workspace(self) -> None:
+        # The core sandbox-design mechanic that had never actually run
+        # against a real daemon before Docker access was fixed (FYP-22):
+        # a container-side commit is supposed to reach the host's
+        # GitWorkspace via `git push origin HEAD:<branch>` against the
+        # bind-mounted /host-repo, exercising exactly the UID-mismatch
+        # question DockerAttemptSandbox's own docstring flags as an
+        # unresolved known limitation - this doesn't resolve that
+        # concern, but it's the first real evidence either way.
+        ticket = Ticket(id="TCK-3", title="t", description="d", branch_name="ticket/TCK-3")
+        sandbox = DockerAttemptSandbox(ticket, self.workspace)
+        try:
+            sandbox.write_file("new_file.txt", "written from inside the container")
+            sha = sandbox.git_commit("add new_file.txt")
+            self.assertTrue(sha)
+        finally:
+            sandbox.close()
+
+        # Verified on the HOST side, independent of the sandbox/container
+        # entirely - a real subprocess git call against self.repo_path.
+        log = subprocess.run(
+            ["git", "-C", str(self.repo_path), "log", "ticket/TCK-3", "-1", "--format=%H %s"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        self.assertTrue(log.startswith(sha), f"host branch HEAD {log!r} doesn't match pushed sha {sha!r}")
+        self.assertIn("add new_file.txt", log)
+
+        content = subprocess.run(
+            ["git", "-C", str(self.repo_path), "show", "ticket/TCK-3:new_file.txt"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertEqual(content, "written from inside the container")
+
     def test_run_hidden_tests_flips_fail_to_pass_and_keeps_pass_to_pass(self) -> None:
         ticket = Ticket(id="TCK-2", title="t", description="d", branch_name="ticket/TCK-2")
         sandbox = DockerAttemptSandbox(ticket, self.workspace)

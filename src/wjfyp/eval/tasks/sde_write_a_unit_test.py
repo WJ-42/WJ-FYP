@@ -28,8 +28,10 @@ whatever repo is checked out, which needs a real Poetry-managed Python
 project (the actual OpenHands repo, or an equivalent) to execute at
 all - not available in this dev environment (no Poetry, no full
 OpenHands checkout), so their logic is transcribed and reviewed
-carefully but not executed end to end here. Same unverified-pending-
-infrastructure status as the Docker-dependent sandbox code (FYP-22).
+carefully but not executed end to end here. Docker access itself was
+fixed 2026-09-25 (FYP-22) and no longer blocks anything - this is a
+separate, still-open gap (Poetry + a real target repo), not the same
+one.
 
 checkpoint4 is also worth flagging for what it actually does, not just
 how: it deletes the agent's test function from the repo as part of

@@ -28,11 +28,17 @@ class DockerAttemptSandbox:
     the canonical workspace). Torn down via close() regardless of
     outcome; the caller (orchestrator loop) owns that lifecycle.
 
-    Known limitation, not yet resolved: the bind-mounted host repo's
-    file ownership (host UID) and the container's `sandbox` user (image
-    UID) aren't reconciled here, which can produce permission errors on
-    the bind mount depending on the host filesystem - needs revisiting
-    once this actually runs against a real Docker daemon.
+    Known limitation, still not actually resolved: the bind-mounted host
+    repo's file ownership (host UID) and the container's `sandbox` user
+    (image UID) aren't reconciled here. Confirmed 2026-09-25 (first real
+    Docker run, once FYP-22 fixed daemon access) that git_commit()'s
+    push-back to the host workspace works end to end - but only because
+    the dev host's user and the image's `sandbox` user both happen to be
+    uid 1000 (each being the first non-system user on their respective
+    systems), not because this gap was actually closed. A host whose
+    user has a different uid would still hit permission errors on the
+    bind mount. Revisit if that's ever observed, or before relying on
+    this against an unknown host.
     """
 
     def __init__(
@@ -56,13 +62,39 @@ class DockerAttemptSandbox:
             nano_cpus=1_000_000_000,  # 1 CPU
             volumes={str(workspace.repo_path): {"bind": "/host-repo", "mode": "rw"}},
         )
-        self._exec("git clone /host-repo /workspace")
-        self._exec(f"git -C /workspace checkout {shlex.quote(self._branch)}")
+        self._exec_checked("git clone /host-repo /workspace", "clone the host workspace")
+        self._exec_checked(
+            f"git -C /workspace checkout {shlex.quote(self._branch)}", f"check out {self._branch!r}"
+        )
 
     def _exec(self, cmd: str) -> CommandResult:
         exit_code, output = self._container.exec_run(["sh", "-c", cmd], workdir="/workspace")
         stdout = output.decode() if isinstance(output, bytes) else ""
         return CommandResult(exit_code=exit_code, stdout=stdout, stderr="")
+
+    def _exec_checked(self, cmd: str, doing: str) -> CommandResult:
+        """Like _exec(), but raises on a non-zero exit code instead of
+        returning it for the caller to notice or not.
+
+        Only used for internal orchestration mechanics (clone, checkout,
+        the git add/commit/push sequence in git_commit()) where a
+        failure must never be silently treated as success - unlike
+        run_command()/run_tests(), which are deliberately agent-facing
+        tools that return a structured result (CommandResult.exit_code,
+        TestResult.passed) for the caller to interpret, since a non-zero
+        exit there can be a legitimate, expected outcome (a linter
+        finding issues, a failing test). Added after confirming by
+        direct reproduction (2026-09-25, the first session with working
+        Docker access) that git_commit() calling plain _exec()
+        throughout meant a `git commit` failure (e.g. no git identity
+        configured - see docker/sandbox.Dockerfile) was completely
+        invisible: no exception, no error, just a stale HEAD sha
+        returned as if the commit had succeeded.
+        """
+        result = self._exec(cmd)
+        if result.exit_code != 0:
+            raise RuntimeError(f"failed to {doing} (exit {result.exit_code}): {result.stdout}")
+        return result
 
     def run_command(self, cmd: str) -> CommandResult:
         return self._exec(cmd)
@@ -154,10 +186,17 @@ class DockerAttemptSandbox:
         # workspace are rejected by git's denyCurrentBranch default -
         # fine as long as the host stays on main/master while tickets
         # use their own branch, per the branch-per-ticket design.
-        self._exec("git add -A")
-        self._exec(f"git commit -m {shlex.quote(message)}")
-        self._exec(f"git push origin HEAD:{self._branch}")
-        return self._exec("git rev-parse HEAD").stdout.strip()
+        #
+        # Every step here is _exec_checked, not plain _exec: this is the
+        # orchestrator's authoritative "the code is committed" signal
+        # (its return value becomes the commit sha other machinery
+        # trusts), so a failure at any step must raise rather than
+        # silently return a stale sha that looks like success - see
+        # _exec_checked's own docstring for the real incident this fixes.
+        self._exec_checked("git add -A", "stage changes")
+        self._exec_checked(f"git commit -m {shlex.quote(message)}", "commit")
+        self._exec_checked(f"git push origin HEAD:{self._branch}", f"push to {self._branch!r}")
+        return self._exec_checked("git rev-parse HEAD", "resolve the new commit sha").stdout.strip()
 
     def close(self) -> None:
         self._container.remove(force=True)
