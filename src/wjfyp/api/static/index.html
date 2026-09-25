@@ -8,30 +8,45 @@
     color-scheme: dark;
     --bg: #14161a;
     --panel: #1c1f26;
+    --panel-raised: #21242c;
     --border: #2b2f38;
     --text: #e6e8eb;
     --muted: #8a8f98;
     --accent: #5b8def;
+
+    /* Role-tier palette: distinct, same-lightness hues so tier reads by
+       color AND position (CTO always highest) - never color alone. */
+    --tier-3: #e2a53a;   /* CTO - authority, warm amber */
+    --tier-2: #b083f0;   /* Product - strategy, violet */
+    --tier-1: #5ec2e0;   /* Engineering - build, cyan */
+    --tier-system: #4bd08a; /* deterministic system/sandbox output, not an agent */
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 20px;
+    --space-5: 32px;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: system-ui, sans-serif;
+    font-family: -apple-system, "Inter", system-ui, sans-serif;
     background: var(--bg);
     color: var(--text);
     height: 100vh;
     display: flex;
     flex-direction: column;
+    line-height: 1.5;
   }
   header {
-    padding: 10px 16px;
+    padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--space-4);
   }
-  header h1 { font-size: 15px; margin: 0; color: var(--muted); font-weight: 600; }
-  nav { display: flex; gap: 4px; }
+  header h1 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  nav { display: flex; gap: var(--space-1); }
   nav button {
     background: none;
     border: 1px solid var(--border);
@@ -40,34 +55,72 @@
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
   }
+  nav button:hover { color: var(--text); border-color: #3a3f4a; }
   nav button.active { background: var(--accent); color: white; border-color: var(--accent); }
   main { flex: 1; overflow: hidden; display: flex; }
-  .view { flex: 1; display: none; overflow: auto; padding: 16px; }
-  .view.active { display: block; }
+  .view { flex: 1; overflow: auto; padding: var(--space-4); display: none; opacity: 0; }
+  .view.active { display: block; opacity: 1; animation: fade-in .18s ease; }
+  @keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  /* Shared role-tier chip: a colored dot + label, used in the feed,
+     kanban cards, and the roles tab, so the same visual language marks
+     "who/what tier said or owns this" everywhere it appears. */
+  .tier-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; flex: none; }
+  .tier-3 { color: var(--tier-3); } .tier-3.tier-dot, .tier-dot.tier-3 { background: var(--tier-3); }
+  .tier-2 { color: var(--tier-2); } .tier-2.tier-dot, .tier-dot.tier-2 { background: var(--tier-2); }
+  .tier-1 { color: var(--tier-1); } .tier-1.tier-dot, .tier-dot.tier-1 { background: var(--tier-1); }
+  .tier-system { color: var(--tier-system); } .tier-system.tier-dot, .tier-dot.tier-system { background: var(--tier-system); }
 
   /* Chat feed */
-  #feed { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
-  .msg { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; }
-  .msg .role { color: var(--accent); font-weight: 600; }
-  .msg .text { font-size: 13px; white-space: pre-wrap; }
+  #feed { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+  .msg {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; letter-spacing: .02em; }
+  .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; }
+  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+  .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
 
-  /* Kanban */
-  #board { display: flex; gap: 12px; height: 100%; align-items: flex-start; }
-  .column { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-width: 180px; flex: 1; padding: 8px; }
-  .column h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 4px 0 10px; }
-  .card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; font-size: 13px; }
-  .card:hover { border-color: var(--accent); }
+  /* Kanban - horizontal overflow scrolls at the .view level; the fix
+     here is making that scrollbar visible at all (a thin default
+     scrollbar is nearly invisible on a dark background, so overflowed
+     columns like ESCALATED/DONE read as "cut off", not "scroll for more"). */
+  #view-kanban { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  #view-kanban::-webkit-scrollbar { height: 10px; }
+  #view-kanban::-webkit-scrollbar-track { background: transparent; }
+  #view-kanban::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+  #view-kanban::-webkit-scrollbar-thumb:hover { background: #3a3f4a; }
+  #board { display: flex; gap: var(--space-3); height: 100%; align-items: flex-start; }
+  .column { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-width: 190px; flex: 1; padding: var(--space-2); }
+  .column h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 12px; }
+  .card {
+    background: var(--panel-raised); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; margin-bottom: var(--space-2); cursor: pointer; font-size: 13px;
+    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,.25); }
   .card .id { color: var(--muted); font-size: 11px; }
-  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 4px; }
+  .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--muted); margin-top: 6px; text-transform: capitalize; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 6px; }
   .badge.waiting { background: #4a3a10; color: #f2b84b; }
   .badge.decided { background: #123a2a; color: #4bd08a; }
 
   /* Thread modal */
-  #modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; }
-  #modal-backdrop.open { display: flex; }
-  #modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 640px; max-height: 80vh; display: flex; flex-direction: column; }
+  #modal-backdrop {
+    position: fixed; inset: 0; background: rgba(10,11,14,.6); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s ease;
+  }
+  #modal-backdrop.open { display: flex; opacity: 1; }
+  #modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 640px; max-height: 80vh;
+    display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    transform: scale(.98) translateY(4px); transition: transform .15s ease;
+  }
+  #modal-backdrop.open #modal { transform: none; }
   #modal header { border-bottom: 1px solid var(--border); }
   #modal-title { font-size: 14px; font-weight: 600; }
   #modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
@@ -87,10 +140,11 @@
   #modal-decision .status { font-size: 12px; color: var(--muted); }
 
   /* Roles */
-  #roles { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  #roles { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
   .role-row {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-    display: flex; align-items: center; gap: 10px; font-size: 13px;
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
   }
   .role-row .name { font-weight: 600; }
   .role-row .meta { color: var(--muted); font-size: 11px; }
@@ -155,11 +209,32 @@
 <script>
 const STATUS_COLUMNS = ["intake", "backlog", "specd", "in_progress", "awaiting_test", "review", "done", "escalated", "halted"];
 
+// role id -> tier, used to color-code every place a role shows up (feed,
+// kanban assignee, roles tab) with the same visual language, so the
+// CTO -> Product -> Engineering hierarchy reads at a glance rather than
+// only being implied by text. "system" (deterministic sandbox output,
+// not an agent - see cs3ip-sandbox-design memory) always gets its own
+// color regardless of the role map.
+let roleTierById = {};
+function tierClassFor(role) {
+  if (role === "system") return "tier-system";
+  const tier = roleTierById[role];
+  return tier ? `tier-${tier}` : "";
+}
+async function loadRoleTiers() {
+  const roles = await fetch("/api/roles").then(r => r.json());
+  roleTierById = {};
+  roles.forEach(r => roleTierById[r.id] = r.tier);
+}
+
 function renderMessage(m) {
   const el = document.createElement("div");
   el.className = "msg";
+  el.dataset.type = m.type;
+  const tierClass = tierClassFor(m.sender.role);
+  if (tierClass) el.style.borderLeftColor = `var(--${tierClass})`;
   const time = new Date(m.timestamp).toLocaleTimeString();
-  el.innerHTML = `<div class="meta"><span class="role">${m.sender.role}</span><span>${m.sender.instance_id}</span><span>${m.type}</span><span>${time}</span></div><div class="text"></div>`;
+  el.innerHTML = `<div class="meta"><span class="role ${tierClass}"><span class="tier-dot ${tierClass}"></span>${m.sender.role}</span><span>${m.sender.instance_id}</span><span>${m.type}</span><span>${time}</span></div><div class="text"></div>`;
   el.querySelector(".text").textContent = m.content.text;
   return el;
 }
@@ -213,7 +288,11 @@ function renderBoard() {
           ? `<div class="badge decided">decision recorded</div>`
           : `<div class="badge waiting">awaiting decision</div>`;
       }
-      card.innerHTML = `<div class="id">${t.id}</div><div>${t.title}</div>${badge}`;
+      const tierClass = t.assignee_role ? tierClassFor(t.assignee_role) : "";
+      const assignee = t.assignee_role
+        ? `<div class="assignee"><span class="tier-dot ${tierClass}"></span>${t.assignee_role}</div>`
+        : "";
+      card.innerHTML = `<div class="id">${t.id}</div><div>${t.title}</div>${assignee}${badge}`;
       card.onclick = () => openThread(t);
       col.appendChild(card);
     });
@@ -312,10 +391,11 @@ function renderRoles(roles) {
   roles.forEach(role => {
     const row = document.createElement("div");
     row.className = "role-row";
+    row.style.borderLeftColor = `var(--tier-${role.tier}, var(--border))`;
     const tag = role.is_preset ? `<span class="preset-tag">preset</span>` : "";
     row.innerHTML = `
       <div>
-        <div class="name">${role.name} <span class="meta">(${role.id})</span> ${tag}</div>
+        <div class="name"><span class="tier-dot tier-${role.tier}"></span>${role.name} <span class="meta">(${role.id})</span> ${tag}</div>
         <div class="meta">tier ${role.tier} · ${role.model} · ${role.count} instance${role.count === 1 ? "" : "s"}${
           role.personality ? ` · "${role.personality}"` : ""
         }</div>
@@ -333,6 +413,7 @@ function renderRoles(roles) {
 async function loadRoles() {
   const roles = await fetch("/api/roles").then(r => r.json());
   renderRoles(roles);
+  roles.forEach(r => roleTierById[r.id] = r.tier);
 }
 
 async function deleteRole(roleId) {
@@ -405,21 +486,21 @@ function connectWebSocket() {
   ws.onclose = () => setTimeout(connectWebSocket, 1000);
 }
 
-loadFeed();
+// Role tiers load first so the very first feed/board render already
+// has tier colors, instead of an untinted flash before a re-render.
+loadRoleTiers().then(() => {
+  loadFeed();
+  loadTickets().then(() => {
+    const match = location.hash.match(/^#ticket:(.+)$/);
+    if (match && ticketsById[match[1]]) {
+      switchTab("kanban");
+      openThread(ticketsById[match[1]]);
+    }
+  });
+});
 connectWebSocket();
 if (location.hash === "#kanban") switchTab("kanban");
 if (location.hash === "#roles") switchTab("roles");
-
-// #ticket:<id> deep-links straight to a ticket's thread (kanban tab,
-// modal open) - useful for bookmarking/sharing a link to a specific
-// ticket, not just a testing convenience.
-loadTickets().then(() => {
-  const match = location.hash.match(/^#ticket:(.+)$/);
-  if (match && ticketsById[match[1]]) {
-    switchTab("kanban");
-    openThread(ticketsById[match[1]]);
-  }
-});
 </script>
 </body>
 </html>
