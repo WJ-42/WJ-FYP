@@ -37,7 +37,7 @@
 <table class="meta-table">
   <tr><td class="label">Student</td><td>Waleed Ahmed — 240048282</td><td class="label">Course</td><td>BSc Computer Science with International Foundation Year</td></tr>
   <tr><td class="label">Supervisor</td><td>Ziyang Wang</td><td class="label">Project</td><td>LLM-Based Multi-Agent Simulation of Human Society</td></tr>
-  <tr><td class="label">Diary started</td><td>25/09/2026</td><td class="label">Last updated</td><td>25/09/2026</td></tr>
+  <tr><td class="label">Diary started</td><td>25/09/2026</td><td class="label">Last updated</td><td>25/09/2026 — Brief finalized</td></tr>
 </table>
 
 <div class="purpose">
@@ -48,11 +48,12 @@
 <table class="data">
 <tr><th>Area</th><th>Status</th></tr>
 <tr><td>Project Definition Form</td><td class="status-resolved">Sent to Ziyang for greenlight, unchanged. Working design realigned to match it.</td></tr>
-<tr><td>Evaluation scope/rigor question</td><td class="status-waiting">Email sent to Ziyang 25/09/2026, awaiting reply.</td></tr>
-<tr><td>TheAgentCompany infrastructure scope</td><td class="status-open">Open decision — full service stack vs. cherry-picked task subset. Not yet resolved.</td></tr>
-<tr><td>LLM model selection per tier</td><td class="status-open">Placeholder values in config pending department API budget / GitHub Student Pack / GCP credits confirmation.</td></tr>
+<tr><td>Evaluation scope/rigor question</td><td class="status-waiting">Email sent to Ziyang 25/09/2026, awaiting reply. This does not block the brief — it commits to the current rigorous methodology regardless; a scaled-back answer from Ziyang would be logged here as a new decision, not a rewrite of the brief.</td></tr>
+<tr><td>TheAgentCompany infrastructure scope</td><td class="status-resolved">Resolved 25/09/2026 — cherry-pick the 69 Software Engineering task definitions and their weighted partial-credit scoring formula, rather than standing up the full GitLab/Plane/RocketChat/ownCloud stack.</td></tr>
+<tr><td>LLM model selection per tier</td><td class="status-resolved">Resolved 25/09/2026 — reframed as a deliberate config parameter (<code>RoleConfig.model</code>), not a document fact. The tiered-cost strategy is final; the specific model name remains pending budget confirmation without blocking the brief.</td></tr>
 <tr><td>Implementation — Layer 1</td><td class="status-resolved">Core Pydantic models + ticket FSM. Commit <code>59f9ee4</code>.</td></tr>
 <tr><td>Implementation — Layer 2</td><td class="status-resolved">Role/settings config + loader + pyproject.toml. Commit <code>e4a57c4</code>.</td></tr>
+<tr><td>Project Brief</td><td class="status-resolved">Finalized 25/09/2026 as the foundational architecture reference — commit <code>e7fdddf</code>. No open design questions remain in it.</td></tr>
 </table>
 
 <h2>Log</h2>
@@ -110,12 +111,19 @@
 <p><strong>Comparable-tools research</strong> found that several already-made design choices are independently validated by existing systems (MetaGPT's pub-sub message pool, SWE-agent's constrained tool interface, OpenHands' append-only event log), and found documented pitfalls in those same tools that justify stricter choices already made here — most notably MetaGPT's own failure analysis attributing 43% of its code-inconsistency failures to agents ignoring prescribed context, directly validating the decision to make handoff notes mandatory rather than optional.</p>
 </div>
 
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Project brief finalized as the foundational document</h3>
+<p>Audited the brief's own text for anything still open, rather than relying on memory of what had been decided — searching for language like "pending," "TBD," and "to be confirmed" turned up exactly one explicit placeholder (LLM model selection) and one section that was quietly incomplete rather than honestly open (the benchmark strategy, which didn't yet reflect that same day's research on TheAgentCompany's real infrastructure requirement). Both were resolved rather than left open: model selection is now framed as a deliberate configuration parameter rather than a document fact, since the tiered-cost strategy itself doesn't depend on knowing the exact vendor; and the benchmark strategy now states a concrete decision to cherry-pick the 69 relevant task definitions and their scoring formula rather than stand up TheAgentCompany's full service environment, judged disproportionate infrastructure for this project's goals. Sections 6.1 and 6.3 were also tightened with the exact FAIL_TO_PASS/PASS_TO_PASS and MAST-code terminology verified during the same day's research, replacing vaguer earlier phrasing.</p>
+<p>Separately, the finite-state-machine diagram was rebuilt: the original version was a wide monospace block that relied on horizontal scrolling to read, which is meaningless in a static PDF. It's now a stacked box-and-arrow layout that fits the page width. That fix also caught a second, unrelated problem — the PDF export command had been silently using an invalid Chromium flag for suppressing the browser's default print header and footer, so every PDF produced up to this point had an unwanted date/URL/page-number header and footer that was never visually checked. All three PDFs in Downloads (Brief, Diary, Form Alignment Notes) were regenerated with the corrected flag once this was caught.</p>
+<p>With both open items resolved, the brief is now treated as frozen: further decisions and research get logged here, not by editing it.</p>
+</div>
+
 <h2>Open Items Carried Forward</h2>
 <ol>
-  <li>Ziyang's reply on evaluation scope/rigor (email sent 25/09/2026).</li>
-  <li>TheAgentCompany infrastructure decision: full service stack vs. cherry-picked task subset.</li>
-  <li>Concrete LLM model selection per role tier, pending budget confirmation.</li>
+  <li>Ziyang's reply on evaluation scope/rigor (email sent 25/09/2026) — tracked here regardless of outcome; does not require reopening the brief.</li>
   <li>Detailed UI implementation for custom roles/personalities editor, kanban card intervention controls, and the free-text "repeat with notes" option identified from Agent Laboratory.</li>
+  <li>Whether to adopt Generative Agents' recency/importance/relevance scoring for the on-demand channel-history tool, or keep naive last-n truncation — surfaced by research, not yet decided.</li>
+  <li>Whether failure-mode tagging against the MAST codes should be LLM-judged or rule-based — surfaced by research, not yet decided.</li>
 </ol>
 
 <footer>
