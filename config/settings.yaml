@@ -1,0 +1,23 @@
+# Global orchestrator settings. See src/wjfyp/config.py for the loader
+# and src/wjfyp/orchestrator/fsm.py for how retry_cap and autonomy_mode
+# are actually applied.
+
+# Max attempts around the Awaiting Test <-> In Progress loop before a
+# ticket is force-escalated to the CTO tier. Confirmed at 3 - see
+# cs3ip-comm-protocol memory.
+retry_cap: 3
+
+# Only "sequential" exists for now: the orchestrator runs one ticket at a
+# time through the full FSM before starting the next. See the
+# "Concurrency" decision in cs3ip-comm-protocol memory for why.
+concurrency: sequential
+
+# "autonomous": every transition fires automatically, needed for
+# unattended batch evaluation runs.
+# "intervention": transitions where fsm.Transition.requires_approval is
+# True pause and wait for a human signal instead.
+autonomy_mode: autonomous
+
+event_log:
+  backend: sqlite
+  path: data/eventlog.db

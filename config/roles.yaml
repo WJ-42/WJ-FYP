@@ -1,0 +1,41 @@
+# Preset agent team for the CS3IP multi-agent software company simulation.
+# Three tiers, five agent instances total. See src/wjfyp/models/agent.py
+# (RoleConfig) for field semantics, and src/wjfyp/orchestrator/fsm.py
+# (ACTIVE_ROLE_FOR_STATUS) for how `id` here maps to which ticket states
+# a role acts on.
+#
+# `model` values are placeholders (TBD-*) pending confirmation of the
+# department API budget, GitHub Student Developer Pack, and GCP student
+# credits - see cs3ip-fyp-overview memory, "Constraints" section. Swap
+# these for real model identifiers once that's settled; nothing else in
+# this file or its loader needs to change.
+#
+# Custom roles a user creates at runtime are NOT stored here - this file
+# is only the preset/default team shipped with the app. Custom roles are
+# persisted separately (is_preset: false), per the Project Definition
+# Form alignment decision - see cs3ip-form-alignment memory.
+
+roles:
+  - id: cto
+    name: CTO
+    tier: 3
+    model: TBD-strong-model
+    count: 1
+    personality: null
+    is_preset: true
+
+  - id: product
+    name: Product
+    tier: 2
+    model: TBD-mid-model
+    count: 1
+    personality: null
+    is_preset: true
+
+  - id: engineering
+    name: Engineering
+    tier: 1
+    model: TBD-cheap-model
+    count: 3
+    personality: null
+    is_preset: true
