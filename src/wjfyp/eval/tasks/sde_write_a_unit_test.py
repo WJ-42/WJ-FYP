@@ -39,6 +39,23 @@ That's the real evaluator.py's own design, not something introduced by
 this port - kept faithful to it rather than smoothing it over, but a
 caller relying on the repo's state being unchanged after grading needs
 to know this checkpoint alone violates that.
+
+ORDER DEPENDENCY, caught reviewing this port (2026-09-25): this task's
+checkpoint list is NOT actually independent/unordered the way
+wjfyp.eval.task.Checkpoint's own docstring says checkpoints generally
+are. checkpoint4 deletes test_append_file from TEST_FILE; if it ran
+before test-function-exists or test-passes, both would see the
+already-deleted function and fail incorrectly, even for a fully correct
+submission. This is safe today only because score_task() iterates
+task.checkpoints in plain list order, and this module's TASK lists
+coverage-drops-without-test last, on purpose, matching the real
+evaluator.py's own checkpoint ordering (their scores dict is also
+{checkpoint1, checkpoint2, checkpoint3, checkpoint4} in that order,
+so they have the identical fragility, not something introduced here).
+If score_task() is ever changed to run checkpoints out of order or in
+parallel, this specific task would need checkpoint4 excluded from that
+or run last explicitly - it cannot be made truly order-independent
+without abandoning the destructive-verification technique altogether.
 """
 
 from __future__ import annotations
@@ -55,6 +72,10 @@ from wjfyp.sandbox.pytest_output import strip_ansi
 
 SOURCE_FILE = "openhands/runtime/plugins/agent_skills/file_ops/file_ops.py"
 TEST_FILE = "tests/unit/test_agent_skill.py"
+# The original writes this inside tests/unit/ alongside TEST_FILE; here
+# it's written at the repo root instead (both the write in
+# _run_pytest_with_stats and the read in _line_coverage_rate agree on
+# this path, so the difference is cosmetic, not a correctness issue).
 COVERAGE_XML = "test_agent_skill_coverage.xml"
 FUNCTION_NAME = "test_append_file"
 
@@ -145,6 +166,10 @@ def _checkpoint_test_passes(ctx: GradingContext) -> bool:
 def _checkpoint_coverage_drops_without_the_test(ctx: GradingContext) -> bool:
     before_stats = _run_pytest_with_stats(ctx.repo_path)
     before_coverage = _line_coverage_rate(ctx.repo_path)
+    # `is None`, not `if not before_coverage`: the original checks
+    # `if not before_cov_rate`, which would wrongly treat a genuine 0.0
+    # coverage rate as "missing" and bail early - a real edge case this
+    # port fixes rather than transcribes verbatim.
     if before_coverage is None:
         return False
 

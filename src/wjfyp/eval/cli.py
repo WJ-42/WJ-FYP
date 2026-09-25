@@ -27,11 +27,15 @@ def list_tasks(tasks: dict[str, EvalTask], out: TextIO = sys.stdout) -> None:
         print(f"    {task.title}", file=out)
 
 
-def show_task(tasks: dict[str, EvalTask], task_id: str, out: TextIO = sys.stdout) -> None:
+def show_task(tasks: dict[str, EvalTask], task_id: str, out: TextIO = sys.stdout) -> bool:
+    """Returns whether task_id was found - main() uses this for the
+    process exit code, so a script calling `wjfyp-eval show <bad-id>`
+    actually fails rather than silently exiting 0.
+    """
     task = tasks.get(task_id)
     if task is None:
         print(f"unknown task id: {task_id!r}", file=out)
-        return
+        return False
 
     print(f"{task.task_id}: {task.title}", file=out)
     if task.source:
@@ -42,6 +46,7 @@ def show_task(tasks: dict[str, EvalTask], task_id: str, out: TextIO = sys.stdout
     print(f"Checkpoints ({task.total_points} points total):", file=out)
     for checkpoint in task.checkpoints:
         print(f"  [{checkpoint.points} pt] {checkpoint.id}: {checkpoint.description}", file=out)
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,8 +60,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "list":
         list_tasks(TASKS)
+        return 0
     elif args.command == "show":
-        show_task(TASKS, args.task_id)
+        return 0 if show_task(TASKS, args.task_id) else 1
 
     return 0
 
