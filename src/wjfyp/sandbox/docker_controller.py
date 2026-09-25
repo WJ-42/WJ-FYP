@@ -88,7 +88,27 @@ class DockerAttemptSandbox:
             self.write_file(path, content)
 
         node_ids = spec.fail_to_pass + spec.pass_to_pass
-        cmd = "python -m pytest -v --no-header -p no:cacheprovider " + " ".join(
+        if not node_ids:
+            # Nothing to verify - an empty spec is vacuously satisfied,
+            # but running pytest with no node ids would fall back to
+            # full test discovery over the whole repo, which is not
+            # "hidden tests passed", just a full suite run under a
+            # misleading label.
+            return TestResult(
+                passed=True,
+                fail_to_pass_total=0,
+                fail_to_pass_passed=0,
+                pass_to_pass_total=0,
+                pass_to_pass_passed=0,
+                output="",
+            )
+
+        # --color=no: pytest emits ANSI colour codes around the outcome
+        # word even when stdout is piped, not just in a real terminal -
+        # confirmed empirically, so this can't be left to auto-detection
+        # (parse_pytest_verbose_output also strips any that slip through
+        # as belt-and-suspenders).
+        cmd = "python -m pytest -v --no-header --color=no -p no:cacheprovider " + " ".join(
             shlex.quote(node_id) for node_id in node_ids
         )
         result = self._exec(cmd)

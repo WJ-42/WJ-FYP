@@ -42,6 +42,22 @@ class ParsePytestVerboseOutputTest(unittest.TestCase):
         outcomes = parse_pytest_verbose_output("")
         self.assertNotIn("tests/test_foo.py::test_never_ran", outcomes)
 
+    def test_ansi_colour_codes_around_the_outcome_word_do_not_break_the_match(self) -> None:
+        # Captured verbatim from a real `pytest -v` run piped through
+        # subprocess.run(capture_output=True) - NOT a hand-written guess.
+        # pytest 9.1.1 emits colour codes even when stdout isn't a real
+        # terminal, so --color=no alone can't be trusted; this is the
+        # belt-and-suspenders strip that covers it either way.
+        output = (
+            "tests/test_sample.py::test_passes \x1b[32mPASSED\x1b[0m\x1b[32m [ 50%]\x1b[0m\n"
+            "tests/test_sample.py::test_fails \x1b[31mFAILED\x1b[0m\x1b[31m [100%]\x1b[0m\n"
+        )
+        outcomes = parse_pytest_verbose_output(output)
+        self.assertEqual(
+            outcomes,
+            {"tests/test_sample.py::test_passes": True, "tests/test_sample.py::test_fails": False},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
