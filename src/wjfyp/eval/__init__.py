@@ -1,3 +1,4 @@
+from wjfyp.eval.baseline import BaselineComparison, compare_to_baseline, single_agent_pool
 from wjfyp.eval.mast import MAST_CATEGORIES, MAST_NAMES, MastFailureMode, MastJudge, tag_run
 from wjfyp.eval.scoring import CheckpointResult, TaskScore, calculate_score, score_task
 from wjfyp.eval.task import Checkpoint, EvalTask, GradingContext
@@ -15,4 +16,7 @@ __all__ = [
     "MAST_NAMES",
     "MAST_CATEGORIES",
     "tag_run",
+    "BaselineComparison",
+    "compare_to_baseline",
+    "single_agent_pool",
 ]
