@@ -12,8 +12,12 @@ This repo holds the code only. Design documentation and project history live on 
 
 ## Structure
 
-- `src/wjfyp/` — orchestration, models, FSM, event log, sandbox, config
+- `src/wjfyp/` — orchestration, models, FSM, event log, sandbox, dashboard API, config
 - `config/` — preset role team and global settings
 - `docker/sandbox.Dockerfile` — base image for per-ticket-attempt sandbox containers; build with `docker build -t wjfyp-sandbox:latest -f docker/sandbox.Dockerfile .` before running real (non-fake) sandbox attempts
-- `tests/` — unittest suite (stdlib `unittest`); `test_docker_sandbox_integration.py` self-skips when Docker isn't reachable. Run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies (including the `sandbox` extra) into a venv
+- `tests/` — unittest suite (stdlib `unittest`); `test_docker_sandbox_integration.py` self-skips when Docker isn't reachable. Run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies (including the `api` and `sandbox` extras) into a venv
 - `pyproject.toml` — dependencies
+
+## Running the dashboard
+
+`python -m wjfyp.api.server` starts the dashboard at `http://127.0.0.1:8000` (chat feed by default, `#kanban` for the board), reading whichever event log `config/settings.yaml` points at. It's a read-only view over the same SQLite event log the orchestrator writes to; the two are meant to run as separate processes against the same file.

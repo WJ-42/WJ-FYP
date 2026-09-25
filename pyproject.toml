@@ -9,10 +9,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Added as later layers need them - not installed yet, dev environment
-# is intentionally parked until the Omarchy Linux setup (see
-# cs3ip-fyp-overview memory).
-api = ["fastapi", "uvicorn[standard]", "websockets"]
+# Added as later layers need them.
+# httpx is needed for FastAPI's TestClient (used to test the dashboard
+# API/websocket layer), not the running server itself.
+api = ["fastapi", "uvicorn[standard]", "websockets", "httpx"]
 sandbox = ["docker"]
 
 [build-system]

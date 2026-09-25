@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WJ-FYP Dashboard</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14161a;
+    --panel: #1c1f26;
+    --border: #2b2f38;
+    --text: #e6e8eb;
+    --muted: #8a8f98;
+    --accent: #5b8def;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 { font-size: 15px; margin: 0; color: var(--muted); font-weight: 600; }
+  nav { display: flex; gap: 4px; }
+  nav button {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  nav button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  main { flex: 1; overflow: hidden; display: flex; }
+  .view { flex: 1; display: none; overflow: auto; padding: 16px; }
+  .view.active { display: block; }
+
+  /* Chat feed */
+  #feed { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .msg { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; }
+  .msg .role { color: var(--accent); font-weight: 600; }
+  .msg .text { font-size: 13px; white-space: pre-wrap; }
+
+  /* Kanban */
+  #board { display: flex; gap: 12px; height: 100%; align-items: flex-start; }
+  .column { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-width: 180px; flex: 1; padding: 8px; }
+  .column h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 4px 0 10px; }
+  .card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; font-size: 13px; }
+  .card:hover { border-color: var(--accent); }
+  .card .id { color: var(--muted); font-size: 11px; }
+
+  /* Thread modal */
+  #modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; }
+  #modal-backdrop.open { display: flex; }
+  #modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 640px; max-height: 80vh; display: flex; flex-direction: column; }
+  #modal header { border-bottom: 1px solid var(--border); }
+  #modal-title { font-size: 14px; font-weight: 600; }
+  #modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+  #modal-thread { overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WJ-FYP</h1>
+  <nav>
+    <button id="tab-feed" class="active">Chat Feed</button>
+    <button id="tab-kanban">Kanban</button>
+  </nav>
+</header>
+<main>
+  <section id="view-feed" class="view active"><div id="feed"></div></section>
+  <section id="view-kanban" class="view"><div id="board"></div></section>
+</main>
+
+<div id="modal-backdrop">
+  <div id="modal">
+    <header style="display:flex;align-items:center;padding:10px 14px;">
+      <span id="modal-title"></span>
+      <button id="modal-close">&times;</button>
+    </header>
+    <div id="modal-thread"></div>
+  </div>
+</div>
+
+<script>
+const STATUS_COLUMNS = ["intake", "backlog", "specd", "in_progress", "awaiting_test", "review", "done", "escalated", "halted"];
+
+function renderMessage(m) {
+  const el = document.createElement("div");
+  el.className = "msg";
+  const time = new Date(m.timestamp).toLocaleTimeString();
+  el.innerHTML = `<div class="meta"><span class="role">${m.sender.role}</span><span>${m.sender.instance_id}</span><span>${m.type}</span><span>${time}</span></div><div class="text"></div>`;
+  el.querySelector(".text").textContent = m.content.text;
+  return el;
+}
+
+const feedEl = document.getElementById("feed");
+function appendToFeed(m) {
+  feedEl.appendChild(renderMessage(m));
+  feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+async function loadFeed() {
+  const messages = await fetch("/api/messages").then(r => r.json());
+  feedEl.innerHTML = "";
+  messages.forEach(appendToFeed);
+}
+
+const boardEl = document.getElementById("board");
+let ticketsById = {};
+
+function renderBoard() {
+  boardEl.innerHTML = "";
+  const byStatus = {};
+  STATUS_COLUMNS.forEach(s => byStatus[s] = []);
+  Object.values(ticketsById).forEach(t => (byStatus[t.status] ||= []).push(t));
+
+  STATUS_COLUMNS.forEach(status => {
+    const col = document.createElement("div");
+    col.className = "column";
+    col.innerHTML = `<h3>${status.replace(/_/g, " ")}</h3>`;
+    byStatus[status].forEach(t => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `<div class="id">${t.id}</div><div>${t.title}</div>`;
+      card.onclick = () => openThread(t);
+      col.appendChild(card);
+    });
+    boardEl.appendChild(col);
+  });
+}
+
+async function loadTickets() {
+  const tickets = await fetch("/api/tickets").then(r => r.json());
+  ticketsById = {};
+  tickets.forEach(t => ticketsById[t.id] = t);
+  renderBoard();
+}
+
+const modalBackdrop = document.getElementById("modal-backdrop");
+const modalTitle = document.getElementById("modal-title");
+const modalThread = document.getElementById("modal-thread");
+
+async function openThread(ticket) {
+  modalTitle.textContent = `${ticket.id} — ${ticket.title}`;
+  modalThread.innerHTML = "";
+  const messages = await fetch(`/api/tickets/${ticket.id}/messages`).then(r => r.json());
+  messages.forEach(m => modalThread.appendChild(renderMessage(m)));
+  modalBackdrop.classList.add("open");
+}
+document.getElementById("modal-close").onclick = () => modalBackdrop.classList.remove("open");
+modalBackdrop.onclick = e => { if (e.target === modalBackdrop) modalBackdrop.classList.remove("open"); };
+
+function switchTab(name) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(`tab-${name}`).classList.add("active");
+  document.getElementById(`view-${name}`).classList.add("active");
+}
+document.getElementById("tab-feed").onclick = () => switchTab("feed");
+document.getElementById("tab-kanban").onclick = () => switchTab("kanban");
+
+function connectWebSocket() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => {
+    const { type, data } = JSON.parse(ev.data);
+    if (type === "message") {
+      appendToFeed(data);
+      if (modalBackdrop.classList.contains("open") && data.ticket_ref && ticketsById[data.ticket_ref]) {
+        modalThread.appendChild(renderMessage(data));
+      }
+    } else if (type === "ticket_update") {
+      ticketsById[data.id] = data;
+      renderBoard();
+    }
+  };
+  ws.onclose = () => setTimeout(connectWebSocket, 1000);
+}
+
+loadFeed();
+loadTickets();
+connectWebSocket();
+if (location.hash === "#kanban") switchTab("kanban");
+</script>
+</body>
+</html>
