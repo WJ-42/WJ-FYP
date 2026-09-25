@@ -12,6 +12,7 @@ This repo holds the code only. Design documentation and project history live on 
 
 ## Structure
 
-- `src/wjfyp/` — orchestration, models, FSM, config
+- `src/wjfyp/` — orchestration, models, FSM, event log, config
 - `config/` — preset role team and global settings
-- `pyproject.toml` — dependencies (not yet installed; dev environment is intentionally parked)
+- `tests/` — unittest suite (stdlib `unittest`, no extra dependency); run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies into a venv
+- `pyproject.toml` — dependencies

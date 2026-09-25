@@ -46,7 +46,7 @@ TRANSITIONS: list[Transition] = [
     Transition(TicketStatus.AWAITING_TEST, TicketStatus.IN_PROGRESS, "tests_failed"),
     Transition(TicketStatus.REVIEW, TicketStatus.DONE, "approved", requires_approval=True),  # this IS the merge
     Transition(TicketStatus.REVIEW, TicketStatus.IN_PROGRESS, "changes_requested", requires_approval=True),
-    Transition(TicketStatus.IN_PROGRESS, TicketStatus.ESCALATED, "retry_cap_exceeded"),
+    Transition(TicketStatus.AWAITING_TEST, TicketStatus.ESCALATED, "retry_cap_exceeded"),
     Transition(TicketStatus.ESCALATED, TicketStatus.IN_PROGRESS, "cto_override", requires_approval=True),
     Transition(TicketStatus.ESCALATED, TicketStatus.HALTED, "cto_cannot_resolve", requires_approval=True),
 ]
