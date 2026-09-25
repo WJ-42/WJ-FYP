@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CS3IP Project Diary</title>
+<style>
+  @page { margin: 2.1cm; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; font-size: 10.5pt; line-height: 1.5; }
+  h1 { font-size: 21pt; margin-bottom: 2px; }
+  .subtitle { color: #444; font-size: 11pt; margin-bottom: 14px; }
+  .meta-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 18px; }
+  .meta-table td { border: 1px solid #ccc; padding: 5px 8px; }
+  .meta-table td.label { font-weight: bold; background: #f2f2f2; width: 18%; }
+  .purpose { background: #f4f4f4; border-left: 4px solid #555; padding: 10px 14px; margin: 16px 0 24px 0; font-size: 9.8pt; }
+  h2 { font-size: 14.5pt; margin-top: 26px; margin-bottom: 6px; border-bottom: 2px solid #222; padding-bottom: 4px; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin-top: 6px; margin-bottom: 4px; color: #222; page-break-after: avoid; }
+  .entry-date { display: inline-block; font-size: 9pt; font-weight: bold; color: #fff; background: #444; padding: 2px 8px; border-radius: 3px; margin-right: 8px; }
+  .entry { page-break-inside: avoid; margin-bottom: 18px; border-left: 3px solid #ddd; padding-left: 12px; }
+  ul, ol { margin: 4px 0 8px 0; padding-left: 20px; }
+  li { margin: 2px 0; }
+  table.data { width: 100%; border-collapse: collapse; margin: 8px 0 14px 0; font-size: 9.3pt; }
+  table.data th, table.data td { border: 1px solid #ccc; padding: 5px 7px; text-align: left; vertical-align: top; }
+  table.data th { background: #222; color: #fff; }
+  table.data tr:nth-child(even) { background: #f7f7f7; }
+  .status-open { color: #a15c00; font-weight: bold; }
+  .status-resolved { color: #1b5e20; font-weight: bold; }
+  .status-waiting { color: #a12a2a; font-weight: bold; }
+  code { font-family: "SF Mono", Consolas, Monaco, monospace; font-size: 9pt; background: #f2f2f2; padding: 1px 4px; border-radius: 2px; }
+  footer { margin-top: 30px; font-size: 8.5pt; color: #888; border-top: 1px solid #ccc; padding-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>CS3IP Project Diary</h1>
+<div class="subtitle">A running record of decisions, research, and scope changes — updated after each milestone</div>
+
+<table class="meta-table">
+  <tr><td class="label">Student</td><td>Waleed Ahmed — 240048282</td><td class="label">Course</td><td>BSc Computer Science with International Foundation Year</td></tr>
+  <tr><td class="label">Supervisor</td><td>Ziyang Wang</td><td class="label">Project</td><td>LLM-Based Multi-Agent Simulation of Human Society</td></tr>
+  <tr><td class="label">Diary started</td><td>25/09/2026</td><td class="label">Last updated</td><td>25/09/2026</td></tr>
+</table>
+
+<div class="purpose">
+<strong>Purpose of this document.</strong> The Project Brief (a separate document) is a snapshot of the current technical architecture. This diary is different: it is a chronological log of <em>how</em> that architecture got here — what was decided, what research or external input changed it, and why — updated after each milestone rather than kept as a single point-in-time snapshot. It is intended to double as raw material for the CS3IP report's process/methodology narrative, where a reviewer may want to see the reasoning trail behind a decision, not just its final form.
+</div>
+
+<h2>Current Status at a Glance</h2>
+<table class="data">
+<tr><th>Area</th><th>Status</th></tr>
+<tr><td>Project Definition Form</td><td class="status-resolved">Sent to Ziyang for greenlight, unchanged. Working design realigned to match it.</td></tr>
+<tr><td>Evaluation scope/rigor question</td><td class="status-waiting">Email sent to Ziyang 25/09/2026, awaiting reply.</td></tr>
+<tr><td>TheAgentCompany infrastructure scope</td><td class="status-open">Open decision — full service stack vs. cherry-picked task subset. Not yet resolved.</td></tr>
+<tr><td>LLM model selection per tier</td><td class="status-open">Placeholder values in config pending department API budget / GitHub Student Pack / GCP credits confirmation.</td></tr>
+<tr><td>Implementation — Layer 1</td><td class="status-resolved">Core Pydantic models + ticket FSM. Commit <code>59f9ee4</code>.</td></tr>
+<tr><td>Implementation — Layer 2</td><td class="status-resolved">Role/settings config + loader + pyproject.toml. Commit <code>e4a57c4</code>.</td></tr>
+</table>
+
+<h2>Log</h2>
+
+<div class="entry">
+<h3><span class="entry-date">23/09/2026</span>Foundational design session</h3>
+<p>Started from the supervisor's original pitch — a multi-agent LLM system mimicking a software company — and the project brief document brought to the first working session. Confirmed the pre-existing decisions: five agents across three tiers (CTO / Product / 3× Engineering), a single code path for attaching to or creating a repository, Slack-style channel-based communication rather than a free-for-all chat, and a presentation-agnostic event log underneath whatever visualisation gets built. Explicitly rejected a pixel-art "walk around the office" visualisation as premature.</p>
+<p>Designed the communication protocol from four open questions (message format, routing, turn-taking, context passing): landed on a unified typed <code>Message</code> record that doubles as the event log, orchestrator-mediated publish/subscribe routing (rejecting both direct agent-to-agent calls and a fully autonomous reactive task board), a per-ticket finite state machine for turn-taking, and structured handoff notes instead of full chat-history replay for context passing.</p>
+<p>Designed the execution sandbox: one Docker container per ticket-attempt, torn down after each attempt, with a fixed tool interface (<code>run_tests</code>, <code>run_command</code>, file read/write, git diff/commit) rather than raw shell access.</p>
+<p>Follow-up pass surfaced two gaps and closed them: a persistent per-run git workspace beneath the ephemeral sandbox containers (git history must outlive any single attempt), and isolating hidden acceptance tests from the agent-visible test runner to preserve evaluation validity. Also confirmed: retry cap of 3 before escalation, strictly sequential one-ticket-at-a-time concurrency, a CTO-then-Product requirement intake pipeline, git branch-per-ticket with the Review→Done transition acting as the actual merge, and SQLite over Postgres for the event log/task board.</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">23/09/2026</span>Interface direction</h3>
+<p>Decided observation needed to be live, not just after-the-fact log inspection — this pushed the design toward a websocket-driven dashboard rather than a static export. Settled on a minimal default view (chat feed) with additional detail gated behind a settings panel, split into two independent toggle groups once it became clear the interface serves two different purposes at once: showcasing the multi-agent "society" dynamics for the viva, and surfacing technical metrics for debugging/evaluation. Both groups render from the same underlying message stream.</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Scope check against the submitted Project Definition Form</h3>
+<p>Compared the working design against the CS3IP Project Definition Form as actually submitted to Ziyang (dated 24/09/2026) and found four real divergences, plus one softer emphasis mismatch. In every one of the four hard clashes, the form turned out to be correct and the working design had drifted away from it — not the reverse — so the design was updated to match the form rather than the form being changed:</p>
+<ul>
+  <li><strong>Channels:</strong> form specifies role- and feature-based channels; design had settled on ticket-based only. Resolved by making grouping strategy (role/feature/ticket) a user-selectable option rather than one hardcoded default.</li>
+  <li><strong>Custom roles &amp; personalities:</strong> form promises a user-facing feature; design only had internal developer-facing config. Promoted to a real v1 feature.</li>
+  <li><strong>Kanban board:</strong> form commits to it as one of two built-in views; design had dropped it in favour of a single dashboard. Added back in as a second tab, drilling down into a ticket's message thread on click.</li>
+  <li><strong>Observe and intervene:</strong> form frames both as deliverable; design had explicitly backlogged intervention. Promoted to a real v1 feature — gated at the Review and Escalated ticket states, surfaced as controls directly on kanban cards.</li>
+</ul>
+<p>The unresolved fifth point: the form states "formal repeated experiments are not the core deliverable," while the evaluation design (hidden-test benchmarking, a MAST-based failure taxonomy, baseline comparison) reads as fairly rigorous. Not a contradiction on its face, but an emphasis question worth Ziyang's input rather than a unilateral call — see the next entry.</p>
+<p>A standalone alignment-notes document was produced recording all five points for Waleed's own reference when updating the form later; the form itself was not touched.</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Supervisor question on evaluation scope</h3>
+<p>Drafted and sent an email to Ziyang asking directly whether the evaluation methodology should stay a lightweight validation layer or whether the more rigorous approach already designed (hidden tests, process metrics, MAST failure taxonomy, baseline comparison) is worth keeping despite the form's "not the core deliverable" framing. Awaiting his reply. The Project Definition Form itself was separately sent to Ziyang for greenlighting, unchanged from its original submitted text.</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Implementation begins — Layer 1</h3>
+<p>Started scaffolding the WJ-FYP repository. Layer 1: the core Pydantic data models (<code>Message</code>, <code>Ticket</code>, <code>Channel</code>, <code>RoleConfig</code>) and the declarative ticket finite-state-machine transition table. Checked each model against the same-day form-alignment scope changes before moving on: the generic <code>Message</code>/<code>Ticket</code>/<code>Channel</code> schemas needed no changes, since they were already designed to not assume any one channel-grouping strategy or presentation layer. Two did need revisiting — <code>RoleConfig</code> gained a <code>personality</code> field and an <code>is_preset</code> flag to support user-created custom roles, and the FSM gained a <code>requires_approval</code> flag on transitions to support the newly-promoted human intervention feature, set on exactly the four transitions matching where intervention controls live on the kanban board (Review→Done, Review→In Progress, Escalated→In Progress, Escalated→Halted).</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Comprehensive project brief produced</h3>
+<p>Compiled the full technical design into a single detailed brief document — architecture, communication protocol, sandbox, dashboard, evaluation methodology, technology stack, constraints, and expected contribution — intended both as standalone documentation and as the source material for a future project poster. Added a Related Work section engaging with three papers Ziyang assigned as background reading (Generative Agents, Agent Hospital, Agent Laboratory), plus verified citations for the three evaluation-methodology papers already informing the design (MAST, TheAgentCompany, SWE-bench).</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Implementation continues — Layer 2</h3>
+<p>Config layer: <code>config/roles.yaml</code> (the preset three-tier team as data, model names left as placeholders pending API budget confirmation), <code>config/settings.yaml</code> (retry cap, concurrency mode, autonomy mode, event log backend — all previously confirmed decisions now expressed as actual config rather than only design notes), a loader module connecting both to the Layer 1 models, and a <code>pyproject.toml</code> declaring dependencies without installing anything, since the dev environment remains intentionally parked.</p>
+</div>
+
+<div class="entry">
+<h3><span class="entry-date">25/09/2026</span>Deep-dive research on cited papers and comparable tools</h3>
+<p>Ran two research passes to go beyond abstract-level understanding of the papers already cited, and to check the design against existing multi-agent/coding-agent tools (ChatDev, MetaGPT, AutoGen, CrewAI, OpenHands, SWE-agent, Devin).</p>
+<p><strong>Paper deep-dive</strong> surfaced several concrete, adoptable mechanisms: MAST's exact 14-code failure taxonomy (our "context lost at handoff" concept maps precisely to code FM-1.4), SWE-bench's exact FAIL_TO_PASS/PASS_TO_PASS test-pair mechanism, TheAgentCompany's weighted partial-credit scoring formula, Generative Agents' recency/importance/relevance memory-scoring formula as a candidate improvement to the on-demand history tool, and Agent Laboratory's three-option (not binary) human checkpoint. It also surfaced that TheAgentCompany's benchmark requires standing up its full GitLab/Plane/RocketChat/ownCloud service stack — heavier infrastructure than the brief had assumed, and now an open decision rather than a settled one.</p>
+<p><strong>Comparable-tools research</strong> found that several already-made design choices are independently validated by existing systems (MetaGPT's pub-sub message pool, SWE-agent's constrained tool interface, OpenHands' append-only event log), and found documented pitfalls in those same tools that justify stricter choices already made here — most notably MetaGPT's own failure analysis attributing 43% of its code-inconsistency failures to agents ignoring prescribed context, directly validating the decision to make handoff notes mandatory rather than optional.</p>
+</div>
+
+<h2>Open Items Carried Forward</h2>
+<ol>
+  <li>Ziyang's reply on evaluation scope/rigor (email sent 25/09/2026).</li>
+  <li>TheAgentCompany infrastructure decision: full service stack vs. cherry-picked task subset.</li>
+  <li>Concrete LLM model selection per role tier, pending budget confirmation.</li>
+  <li>Detailed UI implementation for custom roles/personalities editor, kanban card intervention controls, and the free-text "repeat with notes" option identified from Agent Laboratory.</li>
+</ol>
+
+<footer>
+This is a living document, updated after each project milestone. See the current Project Brief for the up-to-date technical architecture; this diary preserves the reasoning trail behind how it got there.
+</footer>
+
+</body>
+</html>
