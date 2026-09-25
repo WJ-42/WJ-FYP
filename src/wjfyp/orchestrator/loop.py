@@ -1,28 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from wjfyp.config import Settings
 from wjfyp.eventlog import EventLog
 from wjfyp.models.channel import Channel
+from wjfyp.models.message import AgentRef, Message, MessageContent, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
-from wjfyp.orchestrator.agent import Agent
-from wjfyp.orchestrator.agent import AgentContext
-from wjfyp.orchestrator.fsm import (
-    RETRY_LOOP_EDGE,
-    active_role,
-    next_state,
-    requires_human_approval,
-)
+from wjfyp.orchestrator.agent import Agent, AgentContext
+from wjfyp.orchestrator.fsm import active_role, next_state, requires_human_approval
+from wjfyp.sandbox.controller import SandboxController
 
 TERMINAL_STATES = {TicketStatus.DONE, TicketStatus.HALTED}
 
+SandboxFactory = Callable[[Ticket], SandboxController]
+
 # The one trigger the orchestrator itself overrides rather than passing
-# through verbatim: an agent always reports "tests_failed" on a failed
-# run, but whether that stays within budget or forces an escalation
-# depends on Ticket.retry_count, which is orchestrator-owned state the
-# agent has no business deciding. See RETRY_LOOP_EDGE in fsm.py.
-_RETRY_TRIGGER = "tests_failed"
+# through verbatim: run_tests() always reports a plain pass/fail, but
+# whether a failure stays within budget or forces an escalation depends
+# on Ticket.retry_count, which is orchestrator-owned state.
 _RETRY_OVERFLOW_TRIGGER = "retry_cap_exceeded"
 
 # Landing in either of these resets the retry counter - it only tracks
@@ -36,6 +33,12 @@ class StepResult:
     ticket: Ticket
     advanced: bool
     paused_trigger: str | None = None
+    # The current ticket-attempt's open sandbox, if any - only non-None
+    # while a ticket is between entering in_progress and its
+    # awaiting_test check resolving. Callers driving the loop step by
+    # step (rather than via run()) must thread this back into the next
+    # step() call.
+    sandbox: SandboxController | None = None
 
 
 def _pick_instance(role: str, agents: dict[str, list[Agent]], ticket: Ticket) -> Agent:
@@ -56,22 +59,86 @@ def _pick_instance(role: str, agents: dict[str, list[Agent]], ticket: Ticket) ->
     return pool[0]
 
 
+def _apply_transition(
+    ticket: Ticket, trigger: str, event_log: EventLog
+) -> Ticket:
+    new_status = next_state(ticket.status, trigger)
+    updates: dict[str, object] = {"status": new_status}
+    if new_status in _RETRY_RESETTING_STATES:
+        updates["retry_count"] = 0
+    ticket = ticket.model_copy(update=updates)
+    event_log.save_ticket(ticket)
+    return ticket
+
+
+def _step_awaiting_test(
+    ticket: Ticket, channel: Channel, event_log: EventLog, sandbox: SandboxController
+) -> StepResult:
+    """AWAITING_TEST is a deterministic, system-verified step - not an
+    agent turn (confirmed 2026-09-25: letting the engineering agent
+    self-report its own test result would make it both author and judge
+    of its work, a real task-verification failure mode; see
+    cs3ip-comm-protocol memory). The orchestrator calls the sandbox's
+    run_tests() directly and derives the trigger from the actual result.
+    """
+    result = sandbox.run_tests()
+    message = Message(
+        sender=AgentRef(role="system", instance_id="sandbox"),
+        channel_id=channel.id,
+        type=MessageType.TOOL_RESULT,
+        ticket_ref=ticket.id,
+        content=MessageContent(
+            text=f"run_tests: {'passed' if result.passed else 'failed'}\n{result.output}"
+        ),
+    )
+    event_log.append_message(message)
+
+    trigger = "tests_passed" if result.passed else "tests_failed"
+    if trigger == "tests_failed":
+        retry_count = ticket.retry_count + 1
+        if retry_count > ticket.retry_cap:
+            trigger = _RETRY_OVERFLOW_TRIGGER
+        ticket = ticket.model_copy(update={"retry_count": retry_count})
+
+    ticket = _apply_transition(ticket, trigger, event_log)
+    sandbox.close()  # the attempt is over either way
+    return StepResult(ticket=ticket, advanced=True, sandbox=None)
+
+
 def step(
     ticket: Ticket,
     channel: Channel,
     event_log: EventLog,
     agents: dict[str, list[Agent]],
+    sandbox_factory: SandboxFactory,
     settings: Settings,
+    sandbox: SandboxController | None = None,
 ) -> StepResult:
-    """Run exactly one FSM step: invoke the active role's agent, log its
-    message, resolve the trigger it declares into a transition, and
-    apply it - unless the transition requires human approval and the
-    run is in intervention mode, in which case this pauses and returns
-    the proposed trigger for a caller (eventually the dashboard) to
-    confirm, reject, or redirect via resume().
+    """Run exactly one FSM step.
+
+    At awaiting_test this deterministically runs the current attempt's
+    sandbox tests (see _step_awaiting_test). At every other state it
+    invokes the active role's agent, logs its message, and resolves the
+    trigger it declares into a transition - unless that transition
+    requires human approval and the run is in intervention mode, in
+    which case this pauses and returns the proposed trigger for a
+    caller (eventually the dashboard) to confirm, reject, or redirect
+    via resume().
+
+    `sandbox` is the currently open attempt sandbox, if any (None
+    between attempts) - callers driving step-by-step must pass back
+    whatever the previous StepResult.sandbox was; run() does this
+    automatically.
     """
     if ticket.status in TERMINAL_STATES:
-        return StepResult(ticket=ticket, advanced=False)
+        return StepResult(ticket=ticket, advanced=False, sandbox=sandbox)
+
+    if ticket.status == TicketStatus.AWAITING_TEST:
+        if sandbox is None:
+            raise RuntimeError(
+                f"ticket {ticket.id} reached awaiting_test with no open attempt sandbox"
+            )
+        return _step_awaiting_test(ticket, channel, event_log, sandbox)
 
     role = active_role(ticket.status)
     agent = _pick_instance(role, agents, ticket)
@@ -80,36 +147,32 @@ def step(
             update={"assignee_role": role, "assignee_instance_id": agent.instance_id}
         )
 
+    # A ticket entering in_progress starts a new attempt - fresh
+    # sandbox, per cs3ip-sandbox-design memory's "one container per
+    # ticket-attempt, not per run" granularity.
+    if ticket.status == TicketStatus.IN_PROGRESS and sandbox is None:
+        sandbox = sandbox_factory(ticket)
+
     context = AgentContext(
         ticket=ticket,
         channel_id=channel.id,
         role=role,
         instance_id=agent.instance_id,
         handoff=event_log.last_handoff(channel.id),
+        sandbox=sandbox,
     )
     response = agent.invoke(context)
     event_log.append_message(response.message)
     trigger = response.trigger
 
-    if (ticket.status, trigger) == (RETRY_LOOP_EDGE[0], _RETRY_TRIGGER):
-        retry_count = ticket.retry_count + 1
-        if retry_count > ticket.retry_cap:
-            trigger = _RETRY_OVERFLOW_TRIGGER
-        ticket = ticket.model_copy(update={"retry_count": retry_count})
-
     if settings.autonomy_mode == "intervention" and requires_human_approval(
         ticket.status, trigger
     ):
         event_log.save_ticket(ticket)
-        return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger)
+        return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
-    new_status = next_state(ticket.status, trigger)
-    updates: dict[str, object] = {"status": new_status}
-    if new_status in _RETRY_RESETTING_STATES:
-        updates["retry_count"] = 0
-    ticket = ticket.model_copy(update=updates)
-    event_log.save_ticket(ticket)
-    return StepResult(ticket=ticket, advanced=True)
+    ticket = _apply_transition(ticket, trigger, event_log)
+    return StepResult(ticket=ticket, advanced=True, sandbox=sandbox)
 
 
 def run(
@@ -117,6 +180,7 @@ def run(
     channel: Channel,
     event_log: EventLog,
     agents: dict[str, list[Agent]],
+    sandbox_factory: SandboxFactory,
     settings: Settings,
     max_steps: int = 1000,
 ) -> StepResult:
@@ -126,11 +190,13 @@ def run(
     not a real limit expected to be hit in practice.
     """
     event_log.save_ticket(ticket)
-    result = StepResult(ticket=ticket, advanced=True)
+    result = StepResult(ticket=ticket, advanced=True, sandbox=None)
     for _ in range(max_steps):
         if result.ticket.status in TERMINAL_STATES:
             return StepResult(ticket=result.ticket, advanced=False)
-        result = step(result.ticket, channel, event_log, agents, settings)
+        result = step(
+            result.ticket, channel, event_log, agents, sandbox_factory, settings, result.sandbox
+        )
         if not result.advanced:
             return result
     return result
@@ -142,18 +208,17 @@ def resume(
     channel: Channel,
     event_log: EventLog,
     agents: dict[str, list[Agent]],
+    sandbox_factory: SandboxFactory,
     settings: Settings,
 ) -> StepResult:
     """Apply a human's confirm/reject/redirect decision for a ticket
     paused at a requires_approval transition, then continue the loop.
     The decision surface itself (kanban approve/reject/"repeat with
     notes" controls) is a dashboard-layer concern; this just applies
-    whichever trigger the caller supplies.
+    whichever trigger the caller supplies. Pauses only ever happen at
+    review/escalated, both reached only after awaiting_test has already
+    closed that attempt's sandbox, so there's never one to thread
+    through here.
     """
-    new_status = next_state(ticket.status, trigger)
-    updates: dict[str, object] = {"status": new_status}
-    if new_status in _RETRY_RESETTING_STATES:
-        updates["retry_count"] = 0
-    ticket = ticket.model_copy(update=updates)
-    event_log.save_ticket(ticket)
-    return run(ticket, channel, event_log, agents, settings)
+    ticket = _apply_transition(ticket, trigger, event_log)
+    return run(ticket, channel, event_log, agents, sandbox_factory, settings)

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from wjfyp.models.message import HandoffNote, Message
 from wjfyp.models.ticket import Ticket
+from wjfyp.sandbox.controller import SandboxController
 
 
 class AgentContext(BaseModel):
@@ -14,13 +15,21 @@ class AgentContext(BaseModel):
     per cs3ip-comm-protocol memory. An agent that judges this
     insufficient calls EventLog.get_channel_history(n) itself rather
     than the orchestrator pre-fetching it.
+
+    `sandbox` is only non-None during an open ticket-attempt (roughly:
+    the engineering agent's in_progress turn) - see
+    cs3ip-sandbox-design memory. Other roles receive None; they have no
+    code-execution tools to call.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     ticket: Ticket
     channel_id: str
     role: str
     instance_id: str
     handoff: HandoffNote | None = None
+    sandbox: SandboxController | None = None
 
 
 class AgentResponse(BaseModel):

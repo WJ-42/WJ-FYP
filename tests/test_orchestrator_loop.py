@@ -1,8 +1,8 @@
-"""Exercises the Layer 3 orchestrator loop mechanics end to end, using a
-scripted stub agent rather than a real LLM - no model is wired up yet
-(config/roles.yaml's `model` fields are still TBD placeholders). This
-tests control flow (FSM stepping, retry-cap bookkeeping, intervention
-pausing/resume), not agent intelligence.
+"""Exercises the orchestrator loop mechanics end to end, using a
+scripted stub agent (no model wired up yet) and a fake sandbox (no
+Docker) rather than real ones. This tests control flow (FSM stepping,
+retry-cap bookkeeping, intervention pausing/resume, sandbox lifecycle
+per attempt), not agent intelligence or real code execution.
 """
 
 from __future__ import annotations
@@ -23,7 +23,9 @@ from wjfyp.models.message import (
 )
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import AgentContext, AgentResponse
-from wjfyp.orchestrator.loop import resume, run, step
+from wjfyp.orchestrator.loop import resume, run
+from wjfyp.sandbox.controller import TestResult
+from wjfyp.sandbox.fake import FakeSandboxController
 
 
 class ScriptedAgent:
@@ -64,6 +66,30 @@ def _make_channel(ticket: Ticket) -> Channel:
     return Channel(id=f"channel-{ticket.id}", key=f"ticket:{ticket.id}", ticket_ref=ticket.id)
 
 
+def _sandbox_factory_with_results(results: list[TestResult]):
+    """Each ticket-attempt gets a fresh sandbox (see cs3ip-sandbox-design
+    memory) - this hands out a new FakeSandboxController per call, each
+    pre-loaded with the next scripted test result in order.
+    """
+    remaining = list(results)
+
+    def factory(_ticket: Ticket) -> FakeSandboxController:
+        return FakeSandboxController(test_results=[remaining.pop(0)])
+
+    return factory
+
+
+def _test_result(passed: bool) -> TestResult:
+    return TestResult(
+        passed=passed,
+        fail_to_pass_total=1,
+        fail_to_pass_passed=1 if passed else 0,
+        pass_to_pass_total=0,
+        pass_to_pass_passed=0,
+        output="",
+    )
+
+
 class OrchestratorLoopTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -85,40 +111,44 @@ class OrchestratorLoopTest(unittest.TestCase):
         agents = self._agents(
             cto=["decomposed", "approved"],
             product=["spec_ready"],
-            engineering=["assigned", "code_submission", "tests_passed"],
+            engineering=["assigned", "code_submission"],
         )
+        sandbox_factory = _sandbox_factory_with_results([_test_result(passed=True)])
 
-        result = run(ticket, channel, self.event_log, agents, settings)
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
 
         self.assertTrue(
             not result.advanced and result.ticket.status == TicketStatus.DONE
         )
         self.assertEqual(self.event_log.get_ticket(ticket.id).status, TicketStatus.DONE)
-        # Six agent turns -> six logged messages.
+        # cto x2, product x1, engineering x2, sandbox tool_result x1.
         self.assertEqual(len(self.event_log.get_channel_history(channel.id, 100)), 6)
 
     def test_retry_cap_exceeded_escalates_instead_of_looping_forever(self) -> None:
         ticket = _make_ticket()
         channel = _make_channel(ticket)
         settings = Settings(autonomy_mode="autonomous")
-        # Fails four times in a row: 3 is within cap (loops back to
-        # in_progress each time), the 4th must force retry_cap_exceeded.
-        # escalated is not terminal - it's a real CTO-actionable state,
-        # so the loop keeps going and hands it to the CTO agent, which
-        # here reports it can't be resolved either.
+        # Fails four attempts in a row: 3 is within cap (loops back to
+        # in_progress, a fresh sandbox each time), the 4th must force
+        # retry_cap_exceeded. escalated is not terminal - it's a real
+        # CTO-actionable state, so the loop keeps going and hands it to
+        # the CTO agent, which here reports it can't be resolved either.
         agents = self._agents(
             cto=["decomposed", "cto_cannot_resolve"],
             product=["spec_ready"],
             engineering=[
                 "assigned",
-                "code_submission", "tests_failed",
-                "code_submission", "tests_failed",
-                "code_submission", "tests_failed",
-                "code_submission", "tests_failed",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+                "code_submission",
             ],
         )
+        sandbox_factory = _sandbox_factory_with_results(
+            [_test_result(passed=False) for _ in range(4)]
+        )
 
-        result = run(ticket, channel, self.event_log, agents, settings)
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
 
         self.assertTrue(not result.advanced)
         self.assertEqual(result.ticket.status, TicketStatus.HALTED)
@@ -131,32 +161,42 @@ class OrchestratorLoopTest(unittest.TestCase):
         agents = self._agents(
             cto=["decomposed", "changes_requested", "approved"],
             product=["spec_ready"],
-            engineering=[
-                "assigned",
-                "code_submission", "tests_passed",
-                # After changes_requested sends it back to in_progress,
-                # engineering gets invoked again.
-                "code_submission", "tests_passed",
-            ],
+            engineering=["assigned", "code_submission", "code_submission"],
+        )
+        sandbox_factory = _sandbox_factory_with_results(
+            [_test_result(passed=True), _test_result(passed=True)]
         )
 
-        paused = run(ticket, channel, self.event_log, agents, settings)
+        paused = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
         self.assertFalse(paused.advanced)
         self.assertEqual(paused.ticket.status, TicketStatus.REVIEW)
         self.assertEqual(paused.paused_trigger, "changes_requested")
 
         # A human confirms the proposed trigger; the loop continues,
         # sends the ticket through another in_progress/awaiting_test
-        # pass, and pauses again at the next requires_approval gate.
+        # pass (a brand new sandbox for that attempt), and pauses again
+        # at the next requires_approval gate.
         confirmed = resume(
-            paused.ticket, "changes_requested", channel, self.event_log, agents, settings
+            paused.ticket,
+            "changes_requested",
+            channel,
+            self.event_log,
+            agents,
+            sandbox_factory,
+            settings,
         )
         self.assertFalse(confirmed.advanced)
         self.assertEqual(confirmed.ticket.status, TicketStatus.REVIEW)
         self.assertEqual(confirmed.paused_trigger, "approved")
 
         final = resume(
-            confirmed.ticket, "approved", channel, self.event_log, agents, settings
+            confirmed.ticket,
+            "approved",
+            channel,
+            self.event_log,
+            agents,
+            sandbox_factory,
+            settings,
         )
         self.assertFalse(final.advanced)
         self.assertEqual(final.ticket.status, TicketStatus.DONE)

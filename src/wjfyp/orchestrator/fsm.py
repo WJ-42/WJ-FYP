@@ -9,12 +9,20 @@ from wjfyp.models.ticket import TicketStatus
 # CTO agent; other states map to a single acting role by design (see
 # cs3ip-comm-protocol memory - one ticket in flight at a time, so there is
 # never ambiguity about who acts next).
+#
+# AWAITING_TEST (confirmed 2026-09-25, see cs3ip-comm-protocol memory):
+# the entry below is informational/attribution only (whose submission is
+# being verified, e.g. for dashboard display) - the orchestrator loop
+# does NOT invoke an engineering agent for this state. It's a
+# deterministic system step (orchestrator calls the sandbox's
+# run_tests() directly); see src/wjfyp/orchestrator/loop.py's
+# _step_awaiting_test.
 ACTIVE_ROLE_FOR_STATUS: dict[TicketStatus, str] = {
     TicketStatus.INTAKE: "cto",
     TicketStatus.BACKLOG: "product",
     TicketStatus.SPECD: "engineering",
     TicketStatus.IN_PROGRESS: "engineering",
-    TicketStatus.AWAITING_TEST: "engineering",  # test execution, still eng tier
+    TicketStatus.AWAITING_TEST: "engineering",
     TicketStatus.REVIEW: "cto",
     TicketStatus.ESCALATED: "cto",
 }

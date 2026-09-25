@@ -12,7 +12,8 @@ This repo holds the code only. Design documentation and project history live on 
 
 ## Structure
 
-- `src/wjfyp/` — orchestration, models, FSM, event log, config
+- `src/wjfyp/` — orchestration, models, FSM, event log, sandbox, config
 - `config/` — preset role team and global settings
-- `tests/` — unittest suite (stdlib `unittest`, no extra dependency); run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies into a venv
+- `docker/sandbox.Dockerfile` — base image for per-ticket-attempt sandbox containers; build with `docker build -t wjfyp-sandbox:latest -f docker/sandbox.Dockerfile .` before running real (non-fake) sandbox attempts
+- `tests/` — unittest suite (stdlib `unittest`); `test_docker_sandbox_integration.py` self-skips when Docker isn't reachable. Run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies (including the `sandbox` extra) into a venv
 - `pyproject.toml` — dependencies
