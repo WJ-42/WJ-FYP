@@ -13,15 +13,19 @@ This repo holds the code only. Design documentation and project history live on 
 ## Structure
 
 - `src/wjfyp/models/` — the core Pydantic data models (`Message`, `Ticket`, `Channel`, `RoleConfig`)
-- `src/wjfyp/orchestrator/` — the ticket FSM (`fsm.py`), the `Agent` protocol, and the `step`/`run`/`resume` control loop (`loop.py`) that drives a ticket through it. `driver.py` picks up a human's recorded intervention decision and applies it via `resume()`, the piece a long-running orchestrator process would call periodically once one exists
+- `src/wjfyp/orchestrator/` — the ticket FSM (`fsm.py`), the `Agent` protocol, and the `step`/`run`/`resume` control loop (`loop.py`) that drives a ticket through it. `claude_agent.py` is the real Claude-backed `Agent` implementation for every stage that doesn't need sandbox tools (Intake/Backlog/Specd/Review/Escalated) — a forced tool call whose schema enumerates exactly the FSM triggers valid from the ticket's current state. In Progress (an engineer actually writing and submitting code) needs a real multi-turn tool-use loop against the sandbox and doesn't exist yet. `driver.py` picks up a human's recorded intervention decision and applies it via `resume()`, the piece a long-running orchestrator process would call periodically once one exists
 - `src/wjfyp/sandbox/` — the fixed tool interface agents use instead of raw shell access. `docker_controller.py` is the real Docker-backed implementation (one container per ticket-attempt), `fake.py` is the in-memory stand-in the test suite runs against, `git_workspace.py` is the persistent host-side git state beneath the ephemeral containers
 - `src/wjfyp/eval/` — the evaluation harness: `task.py`/`scoring.py` for TheAgentCompany-style checkpoint scoring, `mast.py` for MAST failure tagging, `baseline.py` for the single-agent baseline comparison, `runner.py` for tying a task through the orchestrator end to end, `tasks/` for the ported real TheAgentCompany tasks, and `cli.py` for `python -m wjfyp.eval.cli list`/`show`
 - `src/wjfyp/eventlog.py` — the SQLite-backed event log: the append-only message stream, ticket-state projection, custom role store, and intervention decision recording, all in one file since they're one shared datastore
 - `src/wjfyp/api/` — the dashboard: `server.py` is the FastAPI backend, `static/index.html` is the single-page frontend (chat feed, kanban, roles editor), no build step
-- `config/` — preset role team and global settings
+- `config/` — preset role team and global settings. `roles.yaml` is the hierarchical team (CTO tier 3/Opus 5, Product tier 2/Sonnet 5, Engineering tier 1/Haiku 4.5, with personality framing that gives CTO deferred-to authority); `roles_flat.yaml` is the org-structure comparison counterpart — same FSM/pipeline, but every role at the same tier/model with peer-collaborative framing instead
 - `docker/sandbox.Dockerfile` — base image for per-ticket-attempt sandbox containers; build with `docker build -t wjfyp-sandbox:latest -f docker/sandbox.Dockerfile .` before running real (non-fake) sandbox attempts
-- `tests/` — unittest suite (stdlib `unittest`). `test_docker_sandbox_integration.py` self-skips when the Docker daemon isn't reachable or the image isn't built, rather than failing the whole suite. Run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies (including the `api` and `sandbox` extras) into a venv
+- `tests/` — unittest suite (stdlib `unittest`). `test_docker_sandbox_integration.py` self-skips when the Docker daemon isn't reachable or the image isn't built; `test_claude_agent.py`'s `RealApiIntegrationTest` self-skips when `ANTHROPIC_API_KEY` isn't set (and makes one small real, billed API call when it is) — neither failure mode takes down the rest of the suite. Run with `python -m unittest discover -s tests` after installing `pyproject.toml`'s dependencies (including the `api`, `sandbox`, and `agent` extras) into a venv
 - `pyproject.toml` — dependencies
+
+## Configuration
+
+`ANTHROPIC_API_KEY` must be set for `ClaudeAgent` (and its integration test) to work — put it in a local `.env` file (gitignored, never committed) as `ANTHROPIC_API_KEY=sk-ant-...`. Nothing in this repo auto-loads `.env` yet; export it into your shell environment before running code that needs it.
 
 ## Running the dashboard
 
@@ -31,7 +35,7 @@ Three tabs: chat feed (default), kanban (`#kanban`), and roles (`#roles`). `#tic
 
 ## Running the evaluation harness
 
-`python -m wjfyp.eval.cli list` shows every ported benchmark task; `show <task_id>` shows one task's full prompt and checkpoints. `wjfyp.eval.runner.run_eval_task()` is the function that actually runs a task through the orchestrator, either the real multi-agent team or `wjfyp.eval.baseline.single_agent_pool()`'s baseline, and scores and MAST-tags the result. No real LLM-backed `Agent` implementation exists yet, so this is exercised in tests against the same scripted stand-ins used throughout the rest of the suite, ready to use once a real one does.
+`python -m wjfyp.eval.cli list` shows every ported benchmark task; `show <task_id>` shows one task's full prompt and checkpoints. `wjfyp.eval.runner.run_eval_task()` is the function that actually runs a task through the orchestrator, either the real multi-agent team or `wjfyp.eval.baseline.single_agent_pool()`'s baseline, and scores and MAST-tags the result. `wjfyp.orchestrator.claude_agent.ClaudeAgent` is a real LLM-backed `Agent` now, for every stage except In Progress (see Structure above) — the eval harness itself is still exercised in tests against scripted stand-ins, since a full task run also needs In Progress's sandbox-tool capability to exist.
 
 ## Docker
 

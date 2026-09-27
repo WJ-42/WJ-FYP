@@ -1,0 +1,60 @@
+# FLAT counterpart to config/roles.yaml, for the hierarchical-vs-flat
+# organisational-structure comparison confirmed 2026-09-27 (see
+# cs3ip-fyp-overview memory, "Evaluation direction confirmed
+# 2026-09-27"; design options weighed there too).
+#
+# What actually varies here, and what doesn't:
+# - The FSM, the pipeline stages, and which `id` acts at which ticket
+#   state are UNCHANGED - fsm.py's ACTIVE_ROLE_FOR_STATUS still routes
+#   Intake/Review/Escalated to `cto`, Backlog to `product`, Specd/In
+#   Progress to `engineering`. This is deliberate: the comparison is
+#   meant to isolate organisational structure, not also change what's
+#   being tested.
+# - `model`/`tier` for all three roles is the SAME here (Sonnet 5,
+#   tier 1) - no role has a capability advantage over another, unlike
+#   roles.yaml where `cto` is the strongest/most expensive model.
+#   Sonnet 5 (not Haiku, not Opus) was chosen to keep the flat team's
+#   aggregate capability/cost roughly comparable to the hierarchical
+#   team's mix, rather than trivially handicapping or advantaging this
+#   condition - a fair single-variable comparison was the goal.
+# - `personality` reframes every role as a collaborating peer rather
+#   than a CTO with deferred-to authority - option 4 from the same
+#   design discussion, combined with the capability-equality above
+#   (option 1) for the richest single condition without touching the
+#   FSM at all.
+
+roles:
+  - id: cto
+    name: CTO
+    tier: 1
+    model: claude-sonnet-5
+    count: 1
+    personality: >-
+      You are one of several equal peers on this team - your position in the
+      pipeline is a division of labor, not a rank. Voice disagreement and
+      negotiate with the rest of the team rather than expecting automatic
+      deference; a decision you make is a collaborative judgment call, not an
+      order.
+    is_preset: true
+
+  - id: product
+    name: Product
+    tier: 1
+    model: claude-sonnet-5
+    count: 1
+    personality: >-
+      You are one of several equal peers on this team. If you think an
+      upstream decision should be revisited, say so - you're not obligated to
+      accept scope you disagree with just because someone else set it.
+    is_preset: true
+
+  - id: engineering
+    name: Engineering
+    tier: 1
+    model: claude-sonnet-5
+    count: 3
+    personality: >-
+      You are one of several equal peers on this team. Review feedback is
+      one peer's opinion, not a directive - push back if you think your
+      original approach was right, rather than deferring automatically.
+    is_preset: true

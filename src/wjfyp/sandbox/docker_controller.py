@@ -13,8 +13,8 @@ from wjfyp.sandbox.git_workspace import GitWorkspace
 from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 from wjfyp.sandbox.pytest_output import parse_pytest_verbose_output
 
-# Placeholder, same status as config/roles.yaml's TBD-* model fields -
-# see docker/sandbox.Dockerfile for what it needs to contain and why.
+# Placeholder pending the real target stack - see docker/sandbox.Dockerfile
+# for what it needs to contain and why.
 DEFAULT_IMAGE = "wjfyp-sandbox:latest"
 
 

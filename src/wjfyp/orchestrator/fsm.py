@@ -84,6 +84,17 @@ def active_role(status: TicketStatus) -> str:
     return ACTIVE_ROLE_FOR_STATUS[status]
 
 
+def valid_triggers(status: TicketStatus) -> list[str]:
+    """Every trigger an agent could legally declare while a ticket sits
+    in `status`. Used to build the forced-tool-call schema a real
+    LLM-backed agent is given for its turn (see orchestrator/agent.py) -
+    the model can only pick from this list, never free-text a trigger,
+    so there's no retry-on-malformed-output path to write (confirmed
+    2026-09-25, cs3ip-fyp-overview memory's FYP-25 entry).
+    """
+    return [t.trigger for t in TRANSITIONS if t.from_state == status]
+
+
 def requires_human_approval(current: TicketStatus, trigger: str) -> bool:
     """Whether this transition should pause for a human signal when the
     run is in intervention mode. Callers in autonomous mode should not

@@ -1,14 +1,20 @@
-# Preset agent team for the CS3IP multi-agent software company simulation.
-# Three tiers, five agent instances total. See src/wjfyp/models/agent.py
-# (RoleConfig) for field semantics, and src/wjfyp/orchestrator/fsm.py
-# (ACTIVE_ROLE_FOR_STATUS) for how `id` here maps to which ticket states
-# a role acts on.
+# Preset agent team for the CS3IP multi-agent software company simulation:
+# the HIERARCHICAL structure. Three tiers, five agent instances total.
+# See src/wjfyp/models/agent.py (RoleConfig) for field semantics, and
+# src/wjfyp/orchestrator/fsm.py (ACTIVE_ROLE_FOR_STATUS) for how `id`
+# here maps to which ticket states a role acts on.
 #
-# `model` values are placeholders (TBD-*) pending confirmation of the
-# department API budget, GitHub Student Developer Pack, and GCP student
-# credits - see cs3ip-fyp-overview memory, "Constraints" section. Swap
-# these for real model identifiers once that's settled; nothing else in
-# this file or its loader needs to change.
+# Model choice confirmed 2026-09-25 (cs3ip-fyp-overview memory, FYP-25):
+# Claude Opus 5 / Sonnet 5 / Haiku 4.5, one per tier - tiered cost by
+# design, not a placeholder anymore.
+#
+# `personality` here is deliberately the "org structure" half of the
+# comparison this file is one side of - see config/roles_flat.yaml for
+# the other. This file's framing gives the CTO slot explicit authority
+# and asks Product/Engineering to defer to it; roles_flat.yaml's framing
+# is peer-collaborative instead, with no distinguished authority. See
+# cs3ip-fyp-overview memory's "Evaluation direction confirmed
+# 2026-09-27" entry for why these two files exist.
 #
 # Custom roles a user creates at runtime are NOT stored here - this file
 # is only the preset/default team shipped with the app. Custom roles are
@@ -19,23 +25,33 @@ roles:
   - id: cto
     name: CTO
     tier: 3
-    model: TBD-strong-model
+    model: claude-opus-5
     count: 1
-    personality: null
+    personality: >-
+      You have final technical authority on this team. Product and Engineering
+      are expected to defer to your architectural and quality judgment - your
+      review approval is what actually merges code, and your call on an
+      escalation is final. Be decisive rather than collaborative when you act.
     is_preset: true
 
   - id: product
     name: Product
     tier: 2
-    model: TBD-mid-model
+    model: claude-sonnet-5
     count: 1
-    personality: null
+    personality: >-
+      You work within the scope the CTO has already set. Decompose it
+      faithfully into tickets rather than re-litigating the CTO's
+      architectural decisions.
     is_preset: true
 
   - id: engineering
     name: Engineering
     tier: 1
-    model: TBD-cheap-model
+    model: claude-haiku-4-5
     count: 3
-    personality: null
+    personality: >-
+      You implement what's specified and submit for review. The CTO's review
+      feedback is authoritative - address it directly rather than arguing
+      your original approach was fine.
     is_preset: true
