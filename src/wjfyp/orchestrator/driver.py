@@ -6,6 +6,7 @@ from wjfyp.models.channel import Channel
 from wjfyp.models.ticket import Ticket
 from wjfyp.orchestrator.agent import Agent
 from wjfyp.orchestrator.loop import HiddenTestLookup, SandboxFactory, StepResult, resume
+from wjfyp.sandbox.git_workspace import GitWorkspace
 
 # Same derivation run_eval_task() and every test helper already use:
 # Channel.id is deterministic from ticket.id, so it doesn't need its own
@@ -44,6 +45,7 @@ def apply_pending_decisions(
     sandbox_factory: SandboxFactory,
     settings: Settings,
     hidden_tests: HiddenTestLookup | None = None,
+    workspace: GitWorkspace | None = None,
 ) -> list[StepResult]:
     """Poll-and-apply pass over every ticket with a recorded human
     decision waiting to be picked up: calls resume() for each, same
@@ -53,7 +55,9 @@ def apply_pending_decisions(
     loop of its own here, since there's no real LLM-backed Agent yet
     for a standing process to run against (see cs3ip-fyp-overview
     memory); this is the tested, ready-to-call building block for when
-    one exists, not a running service today.
+    one exists, not a running service today. `workspace`: see
+    loop.step()'s docstring - required for an "approved" decision here
+    to actually merge anything.
     """
     results = []
     for ticket in find_pending_decisions(event_log):
@@ -68,6 +72,7 @@ def apply_pending_decisions(
             settings,
             hidden_tests=hidden_tests,
             notes=ticket.decision_notes,
+            workspace=workspace,
         )
         results.append(result)
     return results

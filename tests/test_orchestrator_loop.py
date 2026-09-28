@@ -7,6 +7,7 @@ per attempt), not agent intelligence or real code execution.
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ from wjfyp.orchestrator.agent import AgentContext, AgentResponse
 from wjfyp.orchestrator.loop import resume, run
 from wjfyp.sandbox.controller import TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
+from wjfyp.sandbox.git_workspace import GitWorkspace
 from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 
@@ -312,6 +314,101 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertIsNone(final.ticket.pending_trigger)
         self.assertIsNone(final.ticket.human_decision)
         self.assertIsNone(final.ticket.decision_notes)
+
+    def _real_workspace_with_a_ticket_branch_commit(self, ticket: Ticket) -> GitWorkspace:
+        """A real, throwaway git repo with ticket.branch_name already
+        carrying a commit main doesn't have - simulating what a real
+        git_commit() push-back from a container leaves behind, without
+        needing a real Docker sandbox for these orchestrator-level tests
+        (real Docker mechanics are covered separately, per
+        cs3ip-sandbox-design memory)."""
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        repo_path = Path(tmpdir.name)
+        subprocess.run(["git", "init", "-b", "main", str(repo_path)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Test"], check=True)
+        (repo_path / "README.md").write_text("hello\n")
+        subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo_path), "commit", "-m", "initial"], check=True, capture_output=True)
+
+        workspace = GitWorkspace(repo_path, default_base="main")
+        workspace.ensure_branch(ticket)
+        subprocess.run(
+            ["git", "-C", str(repo_path), "checkout", ticket.branch_name], check=True, capture_output=True
+        )
+        (repo_path / "feature.txt").write_text("real work\n")
+        subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo_path), "commit", "-m", "the ticket's work"], check=True, capture_output=True
+        )
+        subprocess.run(["git", "-C", str(repo_path), "checkout", "main"], check=True, capture_output=True)
+        return workspace
+
+    def test_approving_in_autonomous_mode_merges_into_the_workspace(self) -> None:
+        ticket = Ticket(id="TCK-1", title="Test ticket", description="...", branch_name="ticket/TCK-1")
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "approved"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission"],
+        )
+        sandbox_factory = _sandbox_factory_with_results([_test_result(passed=True)])
+        workspace = self._real_workspace_with_a_ticket_branch_commit(ticket)
+
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings, workspace=workspace)
+
+        self.assertEqual(result.ticket.status, TicketStatus.DONE)
+        self.assertTrue((workspace.repo_path / "feature.txt").exists())
+
+    def test_a_failed_merge_prevents_the_ticket_from_becoming_done(self) -> None:
+        """The same "don't let a failure look like success" check this
+        project applies elsewhere (git_commit's _exec_checked, the
+        code_submission commit gate) - a ticket must not end up Done in
+        the persisted event log while its merge actually failed."""
+        ticket = Ticket(id="TCK-1", title="Test ticket", description="...", branch_name="ticket/TCK-1")
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "approved"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission"],
+        )
+        sandbox_factory = _sandbox_factory_with_results([_test_result(passed=True)])
+
+        class _PoisonWorkspace:
+            def merge(self, _ticket: Ticket) -> str:
+                raise RuntimeError("simulated merge conflict")
+
+        with self.assertRaises(RuntimeError):
+            run(ticket, channel, self.event_log, agents, sandbox_factory, settings, workspace=_PoisonWorkspace())
+
+        self.assertEqual(self.event_log.get_ticket(ticket.id).status, TicketStatus.REVIEW)
+
+    def test_resume_merges_when_a_human_approves_in_intervention_mode(self) -> None:
+        ticket = Ticket(id="TCK-1", title="Test ticket", description="...", branch_name="ticket/TCK-1")
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="intervention")
+        agents = self._agents(
+            cto=["decomposed", "approved"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission"],
+        )
+        sandbox_factory = _sandbox_factory_with_results([_test_result(passed=True)])
+        workspace = self._real_workspace_with_a_ticket_branch_commit(ticket)
+
+        paused = run(ticket, channel, self.event_log, agents, sandbox_factory, settings, workspace=workspace)
+        self.assertEqual(paused.paused_trigger, "approved")
+        self.assertFalse((workspace.repo_path / "feature.txt").exists())  # not merged yet
+
+        final = resume(
+            paused.ticket, "approved", channel, self.event_log, agents, sandbox_factory, settings,
+            workspace=workspace,
+        )
+
+        self.assertEqual(final.ticket.status, TicketStatus.DONE)
+        self.assertTrue((workspace.repo_path / "feature.txt").exists())
 
 
 if __name__ == "__main__":

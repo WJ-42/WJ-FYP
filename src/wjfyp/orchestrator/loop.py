@@ -11,6 +11,7 @@ from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
 from wjfyp.orchestrator.fsm import active_role, next_state, requires_human_approval
 from wjfyp.sandbox.controller import SandboxController
+from wjfyp.sandbox.git_workspace import GitWorkspace
 from wjfyp.sandbox.hidden_tests import HiddenTestSpec
 
 TERMINAL_STATES = {TicketStatus.DONE, TicketStatus.HALTED}
@@ -69,9 +70,23 @@ def _pick_instance(role: str, agents: dict[str, list[Agent]], ticket: Ticket) ->
 
 
 def _apply_transition(
-    ticket: Ticket, trigger: str, event_log: EventLog
+    ticket: Ticket, trigger: str, event_log: EventLog, workspace: GitWorkspace | None = None
 ) -> Ticket:
     new_status = next_state(ticket.status, trigger)
+    if new_status == TicketStatus.DONE and workspace is not None:
+        # The actual merge to the base branch - found missing entirely
+        # 2026-09-28 running a real ticket through intervention mode end
+        # to end: approving a ticket only ever flipped Ticket.status, no
+        # git operation ran at all, despite fsm.py's own TRANSITIONS
+        # comment and the CTO's system prompt both stating "approval IS
+        # the merge." Deliberately not wrapped in try/except: a ticket
+        # must not become Done while its merge silently failed, the same
+        # "don't let a failure look like success" principle as
+        # DockerAttemptSandbox.git_commit's own _exec_checked. `workspace`
+        # is optional so every existing caller that never had a real
+        # GitWorkspace (tests, evaluation runs against FakeSandboxController)
+        # is unaffected.
+        workspace.merge(ticket)
     # Any transition actually firing means whatever pause/decision state
     # was on this ticket has been resolved - clear it unconditionally
     # rather than only in the resume() path, so it can never linger past
@@ -95,6 +110,7 @@ def _step_awaiting_test(
     event_log: EventLog,
     sandbox: SandboxController,
     hidden_test_spec: HiddenTestSpec | None,
+    workspace: GitWorkspace | None = None,
 ) -> StepResult:
     """AWAITING_TEST is a deterministic, system-verified step - not an
     agent turn (confirmed 2026-09-25: letting the engineering agent
@@ -135,7 +151,7 @@ def _step_awaiting_test(
             trigger = _RETRY_OVERFLOW_TRIGGER
         ticket = ticket.model_copy(update={"retry_count": retry_count})
 
-    ticket = _apply_transition(ticket, trigger, event_log)
+    ticket = _apply_transition(ticket, trigger, event_log, workspace)
     sandbox.close()  # the attempt is over either way
     return StepResult(ticket=ticket, advanced=True, sandbox=None)
 
@@ -149,6 +165,7 @@ def step(
     settings: Settings,
     sandbox: SandboxController | None = None,
     hidden_tests: HiddenTestLookup | None = None,
+    workspace: GitWorkspace | None = None,
 ) -> StepResult:
     """Run exactly one FSM step.
 
@@ -165,7 +182,10 @@ def step(
     between attempts) - callers driving step-by-step must pass back
     whatever the previous StepResult.sandbox was; run() does this
     automatically. `hidden_tests` is None outside an evaluation run;
-    when supplied it's consulted only at awaiting_test.
+    when supplied it's consulted only at awaiting_test. `workspace` is
+    the GitWorkspace to merge into on a Review -> Done "approved"
+    transition; None outside a real run (tests, evaluation runs against
+    FakeSandboxController) where there's no real git state to merge.
     """
     if ticket.status in TERMINAL_STATES:
         return StepResult(ticket=ticket, advanced=False, sandbox=sandbox)
@@ -176,7 +196,7 @@ def step(
                 f"ticket {ticket.id} reached awaiting_test with no open attempt sandbox"
             )
         spec = hidden_tests(ticket) if hidden_tests is not None else None
-        return _step_awaiting_test(ticket, channel, event_log, sandbox, spec)
+        return _step_awaiting_test(ticket, channel, event_log, sandbox, spec, workspace)
 
     role = active_role(ticket.status)
     agent = _pick_instance(role, agents, ticket)
@@ -214,7 +234,7 @@ def step(
         event_log.save_ticket(ticket)
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
-    ticket = _apply_transition(ticket, trigger, event_log)
+    ticket = _apply_transition(ticket, trigger, event_log, workspace)
     return StepResult(ticket=ticket, advanced=True, sandbox=sandbox)
 
 
@@ -227,11 +247,13 @@ def run(
     settings: Settings,
     max_steps: int = 1000,
     hidden_tests: HiddenTestLookup | None = None,
+    workspace: GitWorkspace | None = None,
 ) -> StepResult:
     """Drive a ticket through the FSM until it reaches a terminal state
     or pauses for human approval. `max_steps` is a safety valve against
     a runaway loop (e.g. a misbehaving agent that never terminates) -
-    not a real limit expected to be hit in practice.
+    not a real limit expected to be hit in practice. `workspace`: see
+    step()'s docstring.
     """
     event_log.save_ticket(ticket)
     result = StepResult(ticket=ticket, advanced=True, sandbox=None)
@@ -247,6 +269,7 @@ def run(
             settings,
             result.sandbox,
             hidden_tests,
+            workspace,
         )
         if not result.advanced:
             return result
@@ -263,6 +286,7 @@ def resume(
     settings: Settings,
     hidden_tests: HiddenTestLookup | None = None,
     notes: str | None = None,
+    workspace: GitWorkspace | None = None,
 ) -> StepResult:
     """Apply a human's confirm/reject/redirect decision for a ticket
     paused at a requires_approval transition, then continue the loop.
@@ -306,5 +330,8 @@ def resume(
                 ),
             )
         )
-    ticket = _apply_transition(ticket, trigger, event_log)
-    return run(ticket, channel, event_log, agents, sandbox_factory, settings, hidden_tests=hidden_tests)
+    ticket = _apply_transition(ticket, trigger, event_log, workspace)
+    return run(
+        ticket, channel, event_log, agents, sandbox_factory, settings,
+        hidden_tests=hidden_tests, workspace=workspace,
+    )

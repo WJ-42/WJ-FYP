@@ -52,3 +52,35 @@ class GitWorkspace:
         that has this path bind-mounted read-write.
         """
         return f"file://{self.repo_path}"
+
+    def merge(self, ticket: Ticket, base: str | None = None) -> str:
+        """Merge ticket.branch_name into `base` on this host workspace and
+        return the resulting commit sha. This is what actually makes the
+        Review -> Done "approval IS the merge" mechanic real (see
+        fsm.py's TRANSITIONS comment and cs3ip-comm-protocol memory) -
+        found missing entirely 2026-09-28 running a real ticket through
+        intervention mode end to end: approving a ticket only ever
+        flipped Ticket.status, no git operation ran at all, so a
+        genuinely approved, tested, committed change never actually
+        reached the branch anyone else would look at.
+
+        Checks out `base` first (default_base if not given) rather than
+        merging from wherever the workspace happens to be checked out,
+        so the workspace ends this call on `base` - the same invariant
+        git_commit()'s push-back already depends on (see
+        DockerAttemptSandbox.git_commit's comment: pushes are rejected
+        by git's denyCurrentBranch default if the target branch is the
+        one currently checked out on the host, so the host must stay off
+        ticket branches). Raises (via subprocess's check=True) on a real
+        merge conflict rather than silently leaving a half-merged state -
+        this project doesn't have a conflict-resolution story yet, so
+        surfacing the failure is the honest behavior until it does.
+        """
+        if not ticket.branch_name:
+            raise ValueError(f"ticket {ticket.id} has no branch_name assigned")
+        base = base or self.default_base
+        self._git("checkout", base)
+        self._git(
+            "merge", "--no-ff", ticket.branch_name, "-m", f"Merge {ticket.branch_name}: {ticket.title}"
+        )
+        return self._git("rev-parse", "HEAD")
