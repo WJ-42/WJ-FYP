@@ -40,3 +40,9 @@ Three tabs: chat feed (default), kanban (`#kanban`), and roles (`#roles`). `#tic
 ## Docker
 
 Building the sandbox image (see Structure above) and running the full test suite for real both need a working Docker daemon connection. If `docker ps` reports a permission error even after being added to the `docker` group, a fresh login session usually fixes it: group membership changes don't apply to already-running shells, so `newgrp docker` or a new terminal session is often enough without touching the daemon itself.
+
+## Running a real end-to-end demo
+
+`scripts/run_demo_ticket.py` and `scripts/run_dashboard.py` drive one real ticket through the full orchestrator against real Claude models and a real Docker sandbox, in intervention mode so you can watch it live and click real Approve/Request Changes decisions. Neither is part of the shipped system or covered by the test suite - they're manual demo tools.
+
+Needs `ANTHROPIC_API_KEY` set, Docker working, `wjfyp-sandbox:latest` built, and a target repo for the ticket to work against at `../wjfyp-demo-target` (a sibling directory, not nested inside this repo) - create it once with a plain `git init -b main` plus one commit, and keep it dependency-free (only `git` and `pytest` are baked into the sandbox image, no network egress, so anything the demo ticket needs must come from the standard library). Run `scripts/run_dashboard.py` in one terminal, open `http://127.0.0.1:8000/`, then run `scripts/run_demo_ticket.py` in another (both with `PYTHONPATH=src`) and watch the ticket move through the feed and kanban in real time.
