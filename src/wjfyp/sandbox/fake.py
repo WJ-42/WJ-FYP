@@ -16,6 +16,7 @@ class FakeSandboxController:
         self,
         test_results: list[TestResult] | None = None,
         hidden_test_results: list[TestResult] | None = None,
+        command_results: list[CommandResult] | None = None,
     ):
         self.files: dict[str, str] = {}
         self.commands: list[str] = []
@@ -23,6 +24,12 @@ class FakeSandboxController:
         self.closed = False
         self._test_results = list(test_results or [])
         self._hidden_test_results = list(hidden_test_results or [])
+        # Unlike run_tests()/run_hidden_tests(), run_command() falls back
+        # to a silent success once scripted results are exhausted (or if
+        # none were given at all) rather than raising - most run_command
+        # calls in a real session succeed and aren't worth scripting
+        # individually, only specific ones (e.g. a network failure) are.
+        self._command_results = list(command_results or [])
         self.hidden_test_specs_seen: list[HiddenTestSpec] = []
 
     def run_tests(self) -> TestResult:
@@ -41,6 +48,8 @@ class FakeSandboxController:
 
     def run_command(self, cmd: str) -> CommandResult:
         self.commands.append(cmd)
+        if self._command_results:
+            return self._command_results.pop(0)
         return CommandResult(exit_code=0, stdout="", stderr="")
 
     def read_file(self, path: str) -> str:

@@ -20,7 +20,7 @@ from wjfyp.models.message import HandoffNote, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import AgentContext
 from wjfyp.orchestrator.claude_agent import ClaudeAgent
-from wjfyp.sandbox.controller import TestResult
+from wjfyp.sandbox.controller import CommandResult, TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
 
 
@@ -329,6 +329,47 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
         tool_result = next(b for b in second_call_content if b.get("tool_use_id") == "toolu_0")
         self.assertTrue(tool_result["is_error"])
         self.assertIn("KeyError", tool_result["content"])
+
+    def test_network_failure_gets_an_explanatory_note_appended(self) -> None:
+        """Regression check for a real demo run that burned a full retry
+        cap blindly retrying a pip install in a network-disabled sandbox
+        (see cs3ip-budget-crunch memory) - the model should get a clear,
+        immediate reason instead of a raw, easy-to-miss stderr line.
+        """
+        sandbox = FakeSandboxController(
+            command_results=[CommandResult(exit_code=1, stdout="", stderr="Temporary failure in name resolution")]
+        )
+        client = _ScriptedFakeClient(
+            [
+                _tool_use_response(("run_command", {"cmd": "pip install flask"})),
+                _tool_use_response(("declare_outcome", _declare_args())),
+            ]
+        )
+        agent = ClaudeAgent(_engineering_role(), "engineering-1", client=client)
+
+        agent.invoke(_in_progress_context(sandbox))
+
+        second_call_content = client.captured_calls[1]["messages"][-1]["content"]
+        tool_result = next(b for b in second_call_content if b.get("tool_use_id") == "toolu_0")
+        self.assertIn("no network access", tool_result["content"])
+
+    def test_a_run_command_failure_with_no_network_signature_gets_no_note(self) -> None:
+        sandbox = FakeSandboxController(
+            command_results=[CommandResult(exit_code=1, stdout="", stderr="SyntaxError: invalid syntax")]
+        )
+        client = _ScriptedFakeClient(
+            [
+                _tool_use_response(("run_command", {"cmd": "python broken.py"})),
+                _tool_use_response(("declare_outcome", _declare_args())),
+            ]
+        )
+        agent = ClaudeAgent(_engineering_role(), "engineering-1", client=client)
+
+        agent.invoke(_in_progress_context(sandbox))
+
+        second_call_content = client.captured_calls[1]["messages"][-1]["content"]
+        tool_result = next(b for b in second_call_content if b.get("tool_use_id") == "toolu_0")
+        self.assertNotIn("no network access", tool_result["content"])
 
     def test_text_only_response_gets_nudged_to_act_or_finish(self) -> None:
         sandbox = FakeSandboxController()

@@ -202,7 +202,12 @@ _SANDBOX_TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "run_command",
-        "description": "Run a shell command in the sandbox and see its exit code, stdout, and stderr.",
+        "description": (
+            "Run a shell command in the sandbox and see its exit code, stdout, and stderr. "
+            "This sandbox has no network access - installing packages (pip, npm, apt, etc.) "
+            "or reaching any external host will always fail here, so don't attempt it. Work "
+            "only with what's already available in the checked-out repo and the base image."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {"cmd": {"type": "string"}},
@@ -246,6 +251,38 @@ def _truncate(text: str) -> str:
     return text[:_MAX_TOOL_RESULT_CHARS] + f"\n... [truncated, {len(text)} chars total]"
 
 
+# Substrings real network-dependent failures produce in this sandbox
+# (DockerAttemptSandbox always runs with network_disabled=True - see its
+# docstring - so these are never transient, always deterministic). A real
+# demo run burned a full retry_cap's worth of attempts (up to
+# MAX_SANDBOX_ITERATIONS each) hitting the same pip-install failure
+# blindly, since the tool description alone didn't stop the model from
+# trying, and the raw stderr didn't make the real cause legible. The
+# run_command tool description above should prevent most of these
+# up front; this is the reactive backstop for when a model tries anyway,
+# so it gets a clear, immediate reason instead of retrying similar
+# commands for several more turns before giving up on its own.
+_NETWORK_FAILURE_SIGNATURES = (
+    "Temporary failure in name resolution",
+    "Could not resolve host",
+    "Name or service not known",
+    "Network is unreachable",
+    "Connection refused",
+    "Connection timed out",
+)
+
+
+_NETWORK_FAILURE_NOTE = (
+    "\n\n[This sandbox has no network access by design - that failure is expected and won't "
+    "change if retried. Don't attempt package installs or other network calls; work only "
+    "with what's already in the repo and base image.]"
+)
+
+
+def _has_network_failure(text: str) -> bool:
+    return any(sig in text for sig in _NETWORK_FAILURE_SIGNATURES)
+
+
 def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> tuple[str, bool]:
     """Runs one sandbox tool call for real. Returns (result_text, is_error).
 
@@ -265,7 +302,14 @@ def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> 
         if name == "run_command":
             result = sandbox.run_command(args["cmd"])
             text = f"exit code {result.exit_code}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-            return _truncate(text), False
+            # Detect on the full text, not the truncated version - a
+            # signature near the end of a huge blob would otherwise be
+            # silently missed. The note itself is appended after
+            # truncation so it's never the part that gets cut off.
+            truncated = _truncate(text)
+            if _has_network_failure(text):
+                truncated += _NETWORK_FAILURE_NOTE
+            return truncated, False
         if name == "run_tests":
             result = sandbox.run_tests()
             return _truncate(f"{'passed' if result.passed else 'failed'}\n{result.output}"), False
