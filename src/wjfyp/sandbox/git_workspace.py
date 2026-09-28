@@ -47,6 +47,40 @@ class GitWorkspace:
             self._git("branch", ticket.branch_name, base)
         return ticket.branch_name
 
+    def diff_against_base(self, branch_name: str, base: str | None = None) -> str:
+        """The diff `branch_name` introduced relative to `base` - usable
+        whether or not the branch has since been merged.
+
+        A plain `git diff base branch` (or even a merge-base diff) reads
+        empty once merge() has run: after a merge, `branch` is an
+        ancestor of `base`, and merge-base(base, branch) then collapses
+        to branch's own tip - `git diff <tip> <tip>` is trivially empty,
+        even though the branch genuinely changed something. So this
+        first looks for the actual merge commit merge() would have
+        created (a commit reachable from `base` whose second parent is
+        branch's tip - found structurally, not by matching merge()'s
+        commit-message text) and diffs its first parent against it,
+        which is exactly what that merge introduced. Falls back to a
+        plain merge-base diff for the pre-merge case, where this works
+        correctly since branch hasn't been absorbed into base yet.
+
+        Returns "" if the branch was never created (e.g. a ticket that
+        never reached in_progress).
+        """
+        if not self._git("branch", "--list", branch_name):
+            return ""
+        base = base or self.default_base
+        branch_tip = self._git("rev-parse", branch_name)
+        merge_commits = self._git("log", base, "--merges", "--format=%H %P").splitlines()
+        merge_commit = next(
+            (line.split()[0] for line in merge_commits if line.split()[-1] == branch_tip), None
+        )
+        if merge_commit:
+            first_parent = self._git("rev-parse", f"{merge_commit}^1")
+            return self._git("diff", first_parent, merge_commit)
+        merge_base = self._git("merge-base", base, branch_name)
+        return self._git("diff", merge_base, branch_name)
+
     def clone_url(self) -> str:
         """A file:// URL usable as a git remote from inside a container
         that has this path bind-mounted read-write.

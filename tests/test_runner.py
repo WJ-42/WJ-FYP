@@ -45,13 +45,49 @@ class OneAgentPlaysAllRoles:
         return AgentResponse(message=message, trigger=trigger)
 
 
-def _sandbox_factory_with_results(results: list[TestResult]):
+def _sandbox_factory_with_results(results: list[TestResult], workspace: GitWorkspace | None = None):
+    """`workspace`, if given, gets ensure_branch() called on it exactly
+    like a real DockerAttemptSandbox's constructor does (docker_controller.py),
+    plus one real marker commit on that branch - FakeSandboxController
+    itself has no git awareness at all (its "files" never touch the
+    actual repo), so without at least a real commit, a ticket reaching
+    Done would merge a branch identical to base: workspace.merge() (now
+    wired through run_eval_task, see its own docstring) would run
+    without error either way, but there'd be nothing real to prove it
+    actually did something rather than being silently skipped, which is
+    exactly the class of bug this fix addresses.
+    """
     remaining = list(results)
+    attempt = [0]  # mutable counter, closed over below - each retry gets a distinct commit
 
-    def factory(_ticket: Ticket) -> FakeSandboxController:
+    def factory(ticket: Ticket) -> FakeSandboxController:
+        if workspace is not None:
+            branch = workspace.ensure_branch(ticket)
+            attempt[0] += 1
+            _commit_marker_on_branch(workspace, branch, attempt[0])
         return FakeSandboxController(test_results=[remaining.pop(0)])
 
     return factory
+
+
+def _commit_marker_on_branch(workspace: GitWorkspace, branch: str, attempt: int) -> None:
+    """Content includes `attempt` since a retried ticket calls the
+    sandbox factory (and so this) more than once for the same branch -
+    an identical second commit would be a no-op git error ("nothing to
+    commit"), so each attempt needs something genuinely new to commit,
+    same as a real engineer's retry would.
+    """
+    repo = workspace.repo_path
+    subprocess.run(["git", "-C", str(repo), "checkout", branch], check=True, capture_output=True)
+    (repo / f"{branch.replace('/', '_')}.marker").write_text(f"attempt {attempt}\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", f"work on {branch}, attempt {attempt}"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", workspace.default_base], check=True, capture_output=True
+    )
 
 
 def _passing_test_result() -> TestResult:
@@ -100,7 +136,7 @@ class RunEvalTaskTest(unittest.TestCase):
             ["decomposed", "spec_ready", "assigned", "code_submission", "approved"]
         )
         agents = single_agent_pool(solo)
-        sandbox_factory = _sandbox_factory_with_results([_passing_test_result()])
+        sandbox_factory = _sandbox_factory_with_results([_passing_test_result()], workspace=self.workspace)
 
         result = run_eval_task(task, agents, sandbox_factory, self.workspace, self.event_log)
 
@@ -110,6 +146,26 @@ class RunEvalTaskTest(unittest.TestCase):
         self.assertEqual(result.score.points_earned, 1)
         self.assertEqual(result.score.points_total, 2)
         self.assertEqual(result.mast_tags, [])  # Done, nothing for the rule-based half to flag
+        # workspace= is now threaded through to run() (a real bug this
+        # session found) - reaching Done should genuinely have run
+        # `git merge --no-ff`, bringing the branch's real marker commit
+        # into main's history on top of setUp's single "initial" commit
+        # (3 total: initial, the marker commit, the merge commit itself -
+        # --no-ff brings the branch's own commits into main's log, not
+        # just a single empty merge marker).
+        log = subprocess.run(
+            ["git", "-C", str(self.repo_path), "log", "--oneline", "main"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip().splitlines()
+        self.assertEqual(len(log), 3)
+        self.assertIn("Merge ticket/TCK-1", log[0])
+        self.assertTrue((self.repo_path / "ticket_TCK-1.marker").exists())
+
+        # And diff_against_base should still show the real change even
+        # though it's already merged - the exact post-merge case
+        # diff_against_base's own docstring is about.
+        diff = self.workspace.diff_against_base("ticket/TCK-1")
+        self.assertIn("ticket_TCK-1.marker", diff)
 
     def test_a_halted_run_is_scored_low_and_tagged(self) -> None:
         task = EvalTask(
@@ -142,7 +198,8 @@ class RunEvalTaskTest(unittest.TestCase):
                     output="",
                 )
                 for _ in range(4)
-            ]
+            ],
+            workspace=self.workspace,
         )
 
         result = run_eval_task(task, agents, sandbox_factory, self.workspace, self.event_log)

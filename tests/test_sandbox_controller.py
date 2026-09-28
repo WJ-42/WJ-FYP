@@ -182,6 +182,33 @@ class GitWorkspaceTest(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.workspace.merge(ticket)
 
+    def test_diff_against_base_returns_empty_for_a_never_created_branch(self) -> None:
+        self.assertEqual(self.workspace.diff_against_base("ticket/no-such-branch"), "")
+
+    def test_diff_against_base_shows_the_branch_diff_before_merge(self) -> None:
+        ticket = Ticket(id="TCK-7", title="t", description="d", branch_name="ticket/TCK-7")
+        self.workspace.ensure_branch(ticket)
+        self._commit_on_branch("ticket/TCK-7", "unmerged.txt", "not merged yet\n")
+
+        diff = self.workspace.diff_against_base("ticket/TCK-7")
+
+        self.assertIn("unmerged.txt", diff)
+        self.assertIn("not merged yet", diff)
+
+    def test_diff_against_base_still_shows_the_diff_after_merge(self) -> None:
+        # A direct branch-vs-base diff would read empty here, since the
+        # branch is now an ancestor of base - this is exactly why
+        # diff_against_base uses merge-base instead (see its docstring).
+        ticket = Ticket(id="TCK-8", title="t", description="d", branch_name="ticket/TCK-8")
+        self.workspace.ensure_branch(ticket)
+        self._commit_on_branch("ticket/TCK-8", "merged.txt", "already merged\n")
+        self.workspace.merge(ticket)
+
+        diff = self.workspace.diff_against_base("ticket/TCK-8")
+
+        self.assertIn("merged.txt", diff)
+        self.assertIn("already merged", diff)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import anthropic
 
+from wjfyp.config import DEFAULT_ROLES_PATH, load_roles
 from wjfyp.eventlog import EventLog
 from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent, MessageType, TokenCost
 from wjfyp.models.ticket import TicketStatus
-from wjfyp.orchestrator.agent import AgentContext, AgentResponse
+from wjfyp.orchestrator.agent import Agent, AgentContext, AgentResponse
 from wjfyp.orchestrator.fsm import valid_triggers
 from wjfyp.sandbox.controller import SandboxController
 
@@ -385,6 +387,22 @@ def _cached_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         block_dict = last_block if isinstance(last_block, dict) else last_block.model_dump()
         new_content = [*content_rest, {**block_dict, "cache_control": _CACHE_CONTROL}]
     return [*rest, {**last_message, "content": new_content}]
+
+
+def build_agent_pool(roles_path: Path = DEFAULT_ROLES_PATH, event_log: EventLog | None = None) -> dict[str, list[Agent]]:
+    """Loads a roles.yaml (or roles_flat.yaml) file into the `agents`
+    dict shape orchestrator.loop.run() expects - one real ClaudeAgent
+    instance per role, per RoleConfig.count. Generalizes what
+    scripts/run_demo_ticket.py had inlined for one hardcoded path only,
+    so callers that need more than one team config (e.g. Option B's
+    hierarchical-vs-flat comparison, see cs3ip-fyp-overview memory) can
+    build either without duplicating this assembly.
+    """
+    roles = load_roles(roles_path)
+    return {
+        role.id: [ClaudeAgent(role, f"{role.id}-{i + 1}", event_log=event_log) for i in range(role.count)]
+        for role in roles
+    }
 
 
 class ClaudeAgent:

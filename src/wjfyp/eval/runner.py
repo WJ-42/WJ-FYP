@@ -53,14 +53,23 @@ def run_eval_task(
     function doesn't care which, matching cs3ip-comm-protocol memory's
     "not a second system to maintain".
 
-    No real LLM-backed Agent exists yet (see cs3ip-fyp-overview memory),
-    so this is exercised in tests via the same Scripted/Fake stand-ins
-    used throughout the rest of the suite; it's ready to run for real
-    the moment `agents` contains real ones, since it only depends on the
+    Unit-tested against the same Scripted/Fake stand-ins used throughout
+    the rest of the suite, since it only depends on the
     Agent/SandboxController/EventLog protocols, not any concrete
-    implementation.
+    implementation - but a real ClaudeAgent + real Docker sandbox had
+    never actually been driven through here until Option B's comparison
+    runner (see cs3ip-fyp-overview memory), which is what surfaced two
+    real bugs no Fake-based test could catch: the ticket built here had
+    no `branch_name` (GitWorkspace.ensure_branch() raises on that), and
+    `run()` was never given `workspace=`, so the Review->Done auto-merge
+    never fired. Both fixed alongside Option B's runner landing.
     """
-    ticket = Ticket(id=task.task_id, title=task.title, description=task.prompt)
+    ticket = Ticket(
+        id=task.task_id,
+        title=task.title,
+        description=task.prompt,
+        branch_name=f"ticket/{task.task_id}",
+    )
     channel = Channel(id=f"channel-{ticket.id}", key=f"ticket:{ticket.id}", ticket_ref=ticket.id)
 
     result = run(
@@ -71,6 +80,7 @@ def run_eval_task(
         sandbox_factory,
         settings or Settings(),
         hidden_tests=hidden_tests,
+        workspace=workspace,
     )
 
     grading_context = GradingContext(ticket_id=ticket.id, repo_path=str(workspace.repo_path))

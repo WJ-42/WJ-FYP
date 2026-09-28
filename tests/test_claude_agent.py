@@ -19,7 +19,7 @@ from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import HandoffNote, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import AgentContext
-from wjfyp.orchestrator.claude_agent import ClaudeAgent
+from wjfyp.orchestrator.claude_agent import ClaudeAgent, build_agent_pool
 from wjfyp.sandbox.controller import CommandResult, TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
 
@@ -486,6 +486,43 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
         self.assertIn("plain", call["system"][0]["text"].lower())
         narrative_description = call["tools"][0]["input_schema"]["properties"]["narrative"]["description"]
         self.assertIn("no code, paths, commands, or error output", narrative_description)
+
+
+class BuildAgentPoolTest(unittest.TestCase):
+    """No API key needed - constructing a ClaudeAgent doesn't call the
+    API, only invoking one does (see ClaudeAgent's own docstring), so
+    this is free to run against the real config/roles*.yaml files.
+    """
+
+    def test_hierarchical_roles_produce_the_expected_pool_shape(self) -> None:
+        pool = build_agent_pool(Path("config/roles.yaml"))
+
+        self.assertEqual(set(pool.keys()), {"cto", "product", "engineering"})
+        self.assertEqual(len(pool["cto"]), 1)
+        self.assertEqual(len(pool["product"]), 1)
+        self.assertEqual(len(pool["engineering"]), 3)
+        self.assertEqual(pool["cto"][0].instance_id, "cto-1")
+        self.assertEqual(pool["engineering"][1].instance_id, "engineering-2")
+
+    def test_flat_roles_produce_the_same_shape_with_different_config(self) -> None:
+        pool = build_agent_pool(Path("config/roles_flat.yaml"))
+
+        self.assertEqual(set(pool.keys()), {"cto", "product", "engineering"})
+        self.assertEqual(len(pool["engineering"]), 3)
+
+    def test_default_path_is_the_hierarchical_config(self) -> None:
+        pool = build_agent_pool()
+
+        self.assertEqual(len(pool["engineering"]), 3)
+
+    def test_event_log_is_threaded_through_to_every_agent_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            event_log = EventLog(Path(tmp) / "eventlog.db")
+            self.addCleanup(event_log.close)
+
+            pool = build_agent_pool(Path("config/roles.yaml"), event_log=event_log)
+
+            self.assertIs(pool["cto"][0]._event_log, event_log)
 
 
 @unittest.skipUnless(

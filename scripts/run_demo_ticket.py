@@ -22,11 +22,11 @@ Usage: PYTHONPATH=src python scripts/run_demo_ticket.py
 import time
 from pathlib import Path
 
-from wjfyp.config import Settings, load_roles
+from wjfyp.config import Settings
 from wjfyp.eventlog import EventLog
 from wjfyp.models.channel import Channel
 from wjfyp.models.ticket import Ticket, TicketStatus
-from wjfyp.orchestrator.claude_agent import ClaudeAgent
+from wjfyp.orchestrator.claude_agent import build_agent_pool
 from wjfyp.orchestrator.driver import apply_pending_decisions, find_pending_decisions
 from wjfyp.orchestrator.loop import run
 from wjfyp.sandbox.docker_controller import DockerAttemptSandbox
@@ -46,11 +46,7 @@ TERMINAL = {TicketStatus.DONE, TicketStatus.HALTED}
 
 
 def build_agents(event_log: EventLog) -> dict:
-    roles = load_roles()  # config/roles.yaml - the hierarchical team
-    return {
-        role.id: [ClaudeAgent(role, f"{role.id}-{i + 1}", event_log=event_log) for i in range(role.count)]
-        for role in roles
-    }
+    return build_agent_pool(event_log=event_log)  # config/roles.yaml - the hierarchical team
 
 
 def main() -> None:
