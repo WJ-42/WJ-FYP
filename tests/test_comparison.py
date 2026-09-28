@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -252,6 +253,39 @@ class RunStructureComparisonIntegrationTest(unittest.TestCase):
         self.assertFalse((repo_b / "flat.marker").exists())
         self.assertTrue((self.work_dir / "hierarchical" / "eventlog.db").exists())
         self.assertTrue((self.work_dir / "flat" / "eventlog.db").exists())
+
+    def test_a_relative_work_dir_is_resolved_to_absolute(self) -> None:
+        """Regression test: the first real live run (see cs3ip-fyp-overview
+        memory) failed against Docker with 'invalid characters for a local
+        volume name' - Docker bind mounts require an absolute host path,
+        and workspace.repo_path ended up relative because work_dir was
+        passed relative (the CLI's own default, Path("data/comparisons"),
+        is relative too). FakeSandboxController doesn't touch Docker so it
+        can't reproduce that exact failure, but it can prove the actual
+        fix: work_dir gets resolved to absolute before any GitWorkspace/
+        EventLog path is built from it, regardless of what the caller
+        passed in.
+        """
+        original_cwd = Path.cwd()
+        os.chdir(self._tmpdir.name)
+        self.addCleanup(os.chdir, original_cwd)
+
+        condition_a = ConditionSpec(label="hierarchical", roles_path=Path("hierarchical"))
+        condition_b = ConditionSpec(label="flat", roles_path=Path("flat"))
+        task = EvalTask(task_id="TCK-REL", title="Demo", prompt="Do the thing.", checkpoints=[])
+        relative_work_dir = Path("relative-work")
+
+        comparison = run_structure_comparison(
+            task, condition_a, condition_b, self.template_repo, relative_work_dir,
+            sandbox_factory_builder=self._sandbox_factory_builder,
+            agent_pool_builder=self._agent_pool_builder,
+        )
+
+        self.assertEqual(comparison.condition_a.run.ticket_status, "done")
+        resolved_repo = Path(self._tmpdir.name) / "relative-work" / "hierarchical"
+        self.assertTrue(resolved_repo.is_absolute())
+        self.assertTrue((resolved_repo / ".git").exists())
+        self.assertTrue((resolved_repo / "eventlog.db").exists())
 
 
 if __name__ == "__main__":

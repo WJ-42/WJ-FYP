@@ -139,6 +139,16 @@ def run_structure_comparison(
     """
     build_factory = sandbox_factory_builder or _default_sandbox_factory_builder
     build_pool = agent_pool_builder or build_agent_pool
+    # Docker bind mounts require an absolute host path - DockerAttemptSandbox
+    # binds workspace.repo_path directly (docker_controller.py), and a
+    # relative path there isn't just wrong, Docker silently reinterprets it
+    # as a *named volume* instead of a bind mount and fails with a cryptic
+    # "invalid characters for a local volume name" error. Resolving once
+    # here, rather than trusting every caller (including the CLI's own
+    # relative default, Path("data/comparisons")) to pass an absolute path,
+    # is the one choke point that actually prevents this - found by hitting
+    # it for real on the first live run.
+    work_dir = Path(work_dir).resolve()
     results: dict[str, ConditionResult] = {}
 
     for spec in (condition_a, condition_b):
