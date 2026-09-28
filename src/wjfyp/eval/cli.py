@@ -1,22 +1,24 @@
-"""Eval CLI: `python -m wjfyp.eval.cli list|show`.
+"""Eval CLI: `python -m wjfyp.eval.cli list|show|compare`.
 
-Only list/show are exposed here, not a `run` subcommand - running a
-task for real needs a real Agent, and no LLM-backed implementation
-exists yet (model/API selection is still deferred, see
-cs3ip-fyp-overview memory). Building a `run` command that can't
-actually do anything without one would just be an unusable stub; the
-real integration point is wjfyp.eval.runner.run_eval_task(), which is
-fully built and tested (see tests/test_runner.py) and ready to use the
-moment a real `agents` dict exists - list/show don't need that at all,
-so they're the part that's genuinely usable today.
+`compare` runs one task through two team configs (e.g. config/roles.yaml
+vs. config/roles_flat.yaml - the hierarchical-vs-flat comparison, see
+cs3ip-fyp-overview memory's "Evaluation direction confirmed" entry) and
+diffs the results. This was withheld until a real `agents` dict was
+possible - that's now the case (orchestrator.claude_agent.ClaudeAgent),
+so the real integration points (wjfyp.eval.runner.run_eval_task and
+wjfyp.eval.comparison.run_structure_comparison) are wired up here rather
+than left unused.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from typing import TextIO
+from pathlib import Path
+from typing import Callable, TextIO
 
+from wjfyp.eval.comparison import ConditionSpec, StructureComparison, run_structure_comparison
+from wjfyp.eval.rubric import LLMRubricJudge
 from wjfyp.eval.task import EvalTask
 from wjfyp.eval.tasks import TASKS
 
@@ -49,12 +51,74 @@ def show_task(tasks: dict[str, EvalTask], task_id: str, out: TextIO = sys.stdout
     return True
 
 
+def print_comparison(comparison: StructureComparison, out: TextIO = sys.stdout) -> None:
+    print(f"Comparison for {comparison.task_id}", file=out)
+    for condition in (comparison.condition_a, comparison.condition_b):
+        run = condition.run
+        print(file=out)
+        print(f"{condition.label}:", file=out)
+        print(f"  status: {run.ticket_status}", file=out)
+        print(f"  score: {run.score.points_earned}/{run.score.points_total} ({run.score.score:.2f})", file=out)
+        if run.mast_tags:
+            print(f"  MAST tags: {', '.join(tag.value for tag in run.mast_tags)}", file=out)
+        if condition.rubric is not None:
+            for axis_score in condition.rubric.axis_scores:
+                print(f"  rubric[{axis_score.axis_id}]: {axis_score.score} - {axis_score.justification}", file=out)
+            print(f"  rubric overall: {condition.rubric.overall:.2f}", file=out)
+
+    print(file=out)
+    better = comparison.condition_a if comparison.condition_a_better else comparison.condition_b
+    if comparison.score_delta == 0:
+        print(f"Verdict: tied at {comparison.condition_a.run.score.score:.2f}", file=out)
+    else:
+        print(f"Verdict: {better.label} scored higher by {abs(comparison.score_delta):.2f}", file=out)
+
+
+def run_compare(
+    tasks: dict[str, EvalTask],
+    task_id: str,
+    condition_a: ConditionSpec,
+    condition_b: ConditionSpec,
+    template_repo_path: Path,
+    work_dir: Path,
+    use_judge: bool = True,
+    out: TextIO = sys.stdout,
+    runner: Callable[..., StructureComparison] = run_structure_comparison,
+) -> int:
+    """`runner` is injectable so tests don't need Docker or a real API
+    key - same dependency-injection shape list_tasks/show_task already
+    use (`tasks`/`out` as explicit params, not module globals).
+    """
+    task = tasks.get(task_id)
+    if task is None:
+        print(f"unknown task id: {task_id!r}", file=out)
+        return 1
+    judge = LLMRubricJudge() if use_judge else None
+    comparison = runner(task, condition_a, condition_b, template_repo_path, work_dir, judge=judge)
+    print_comparison(comparison, out=out)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wjfyp-eval", description="CS3IP evaluation harness CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="list every ported eval task")
     show_parser = subparsers.add_parser("show", help="show one task's prompt and checkpoints")
     show_parser.add_argument("task_id")
+
+    compare_parser = subparsers.add_parser(
+        "compare", help="run one task through two team configs and compare"
+    )
+    compare_parser.add_argument("task_id")
+    compare_parser.add_argument("--repo", type=Path, required=True, help="template repo (outside this tree)")
+    compare_parser.add_argument("--work-dir", type=Path, default=Path("data/comparisons"))
+    compare_parser.add_argument("--roles-a", type=Path, default=Path("config/roles.yaml"))
+    compare_parser.add_argument("--label-a", default="hierarchical")
+    compare_parser.add_argument("--roles-b", type=Path, default=Path("config/roles_flat.yaml"))
+    compare_parser.add_argument("--label-b", default="flat")
+    compare_parser.add_argument(
+        "--no-judge", action="store_true", help="skip the rubric judge (2 fewer API calls)"
+    )
 
     args = parser.parse_args(argv)
 
@@ -63,6 +127,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     elif args.command == "show":
         return 0 if show_task(TASKS, args.task_id) else 1
+    elif args.command == "compare":
+        return run_compare(
+            TASKS,
+            args.task_id,
+            ConditionSpec(label=args.label_a, roles_path=args.roles_a),
+            ConditionSpec(label=args.label_b, roles_path=args.roles_b),
+            args.repo,
+            args.work_dir,
+            use_judge=not args.no_judge,
+        )
 
     return 0
 
