@@ -27,6 +27,17 @@ MAX_SANDBOX_ITERATIONS = 12
 # log.
 _MAX_TOOL_RESULT_CHARS = 20000
 
+# Every iteration of the In Progress tool-use loop resends the same
+# system prompt, the same tool schemas, and a messages list that's only
+# grown since the last call - all billed as fresh input tokens with no
+# caching, on a loop that can run up to MAX_SANDBOX_ITERATIONS times.
+# That's the real driver behind this project's early API spend (see
+# cs3ip-budget-crunch memory): marking the stable prefix (system, tools,
+# everything before the newest message) as an Anthropic prompt-caching
+# breakpoint lets repeated calls bill cached reads at roughly a tenth of
+# normal input price instead of full price every turn.
+_CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
+
 # Cosmetic only - what shows up as a message's `type` in the event log/
 # dashboard. The FSM itself only ever looks at `trigger` (returned
 # separately in AgentResponse), so a wrong or missing entry here can't
@@ -285,6 +296,53 @@ def _user_turn(context: AgentContext) -> str:
     return "\n".join(lines)
 
 
+def _cached_system(text: str) -> list[dict[str, Any]]:
+    """Wraps a system prompt as a single cacheable content block.
+
+    A plain string `system` can't carry a cache breakpoint - the API
+    needs the block form for that. The prompt is identical across every
+    call for a given role/status (single-turn stages) and across every
+    iteration of one In Progress turn, so marking it here is a pure win.
+    """
+    return [{"type": "text", "text": text, "cache_control": _CACHE_CONTROL}]
+
+
+def _cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Returns tools with a cache breakpoint on the last definition.
+
+    Anthropic caches everything up to and including a marked block, so
+    marking only the last tool caches the whole tools array. Returns a
+    new list; doesn't mutate the shared schema dicts callers pass in.
+    """
+    *rest, last = tools
+    return [*rest, {**last, "cache_control": _CACHE_CONTROL}]
+
+
+def _cached_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Returns messages with a cache breakpoint on the last content block.
+
+    Anthropic caches against the longest prefix matching a previous
+    call's breakpoints, so moving this marker onto the newest last block
+    before every call caches everything the model has already seen in
+    this turn's tool-use loop, leaving only the newest content to bill
+    at full price - this is what actually caps the loop's otherwise
+    roughly quadratic cost. Returns a copy rather than mutating
+    `messages` in place: leaving old markers behind would accumulate
+    past Anthropic's 4-breakpoint-per-request limit over a long loop.
+    """
+    if not messages:
+        return messages
+    *rest, last_message = messages
+    content = last_message["content"]
+    if isinstance(content, str):
+        new_content: Any = [{"type": "text", "text": content, "cache_control": _CACHE_CONTROL}]
+    else:
+        *content_rest, last_block = content
+        block_dict = last_block if isinstance(last_block, dict) else last_block.model_dump()
+        new_content = [*content_rest, {**block_dict, "cache_control": _CACHE_CONTROL}]
+    return [*rest, {**last_message, "content": new_content}]
+
+
 class ClaudeAgent:
     """A real Claude-backed Agent (see orchestrator/agent.py's Protocol)
     covering every FSM stage: Intake, Backlog, Specd, Review, Escalated
@@ -350,8 +408,8 @@ class ClaudeAgent:
         response = self._client.messages.create(
             model=self._role_config.model,
             max_tokens=16000,
-            system=_base_system_prompt(self._role_config, context.ticket.status, triggers),
-            tools=[_tool_schema(triggers)],
+            system=_cached_system(_base_system_prompt(self._role_config, context.ticket.status, triggers)),
+            tools=_cached_tools([_tool_schema(triggers)]),
             tool_choice={"type": "tool", "name": _TOOL_NAME},
             messages=[{"role": "user", "content": _user_turn(context)}],
         )
@@ -364,8 +422,8 @@ class ClaudeAgent:
     def _invoke_in_progress(self, context: AgentContext, triggers: list[str]) -> AgentResponse:
         sandbox = context.sandbox
         assert sandbox is not None  # narrows the type for mypy; invoke() already checked
-        system = _base_system_prompt(self._role_config, context.ticket.status, triggers)
-        tools = [*_SANDBOX_TOOL_SCHEMAS, _tool_schema(triggers)]
+        system = _cached_system(_base_system_prompt(self._role_config, context.ticket.status, triggers))
+        tools = _cached_tools([*_SANDBOX_TOOL_SCHEMAS, _tool_schema(triggers)])
         messages: list[dict[str, Any]] = [{"role": "user", "content": _user_turn(context)}]
         total_prompt = 0
         total_completion = 0
@@ -390,7 +448,11 @@ class ClaudeAgent:
 
         for _ in range(MAX_SANDBOX_ITERATIONS):
             response = self._client.messages.create(
-                model=self._role_config.model, max_tokens=16000, system=system, tools=tools, messages=messages
+                model=self._role_config.model,
+                max_tokens=16000,
+                system=system,
+                tools=tools,
+                messages=_cached_messages(messages),
             )
             total_prompt += response.usage.input_tokens
             total_completion += response.usage.output_tokens
@@ -460,9 +522,9 @@ class ClaudeAgent:
                 model=self._role_config.model,
                 max_tokens=16000,
                 system=system,
-                tools=[_tool_schema(triggers)],
+                tools=_cached_tools([_tool_schema(triggers)]),
                 tool_choice={"type": "tool", "name": _TOOL_NAME},
-                messages=messages,
+                messages=_cached_messages(messages),
             )
             total_prompt += response.usage.input_tokens
             total_completion += response.usage.output_tokens

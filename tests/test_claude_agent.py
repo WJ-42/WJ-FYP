@@ -231,7 +231,8 @@ class ClaudeAgentTest(unittest.TestCase):
 
         agent.invoke(_context(TicketStatus.REVIEW))
 
-        self.assertIn("Be extremely terse.", client.captured_calls[0]["system"])
+        # system is a cacheable block list (see _cached_system), not a bare string
+        self.assertIn("Be extremely terse.", client.captured_calls[0]["system"][0]["text"])
 
     def test_handoff_is_relayed_into_the_user_turn(self) -> None:
         client = _FakeClient(
@@ -342,8 +343,11 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
         result = agent.invoke(_in_progress_context(sandbox))
 
         self.assertEqual(result.trigger, "code_submission")
+        # the nudge is a plain string in the loop's own messages list, but
+        # _cached_messages wraps the last message's content into a cacheable
+        # block list before it's sent, so the captured call sees blocks
         nudge = client.captured_calls[1]["messages"][-1]["content"]
-        self.assertIn("declare_outcome", nudge)
+        self.assertIn("declare_outcome", nudge[0]["text"])
 
     def test_exhausting_the_iteration_budget_forces_a_final_declare_outcome_call(self) -> None:
         sandbox = FakeSandboxController()
@@ -438,7 +442,7 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
         agent.invoke(_context(TicketStatus.REVIEW))
 
         call = client.captured_calls[0]
-        self.assertIn("plain", call["system"].lower())
+        self.assertIn("plain", call["system"][0]["text"].lower())
         narrative_description = call["tools"][0]["input_schema"]["properties"]["narrative"]["description"]
         self.assertIn("no code, paths, commands, or error output", narrative_description)
 
