@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID, uuid4
 
 import anthropic
 
@@ -104,11 +105,15 @@ def _base_system_prompt(role_config: RoleConfig, status: TicketStatus, valid: li
         f"When you are ready to end your turn, call the {_TOOL_NAME} tool exactly "
         "once. Its `trigger` field is constrained to the outcomes actually valid "
         f"from this ticket's current state ({', '.join(valid)}) - pick the one that "
-        "reflects what you're deciding. `narrative` is a short message visible to "
-        "the rest of the team in the shared log. `handoff_done` / "
+        "reflects what you're deciding. `narrative` is what a teammate reads in a "
+        "shared group chat: a sentence or two in plain, everyday language, like "
+        "you're telling a coworker what you did and why. Never put code, file "
+        "paths, commands, or error output in narrative - anyone who wants that "
+        "detail can already see it in your logged tool activity. `handoff_done` / "
         "`handoff_remaining` / `handoff_notes_for_next` are what the *next* agent "
         "to touch this ticket will see instead of the full conversation history - "
-        "write them assuming the reader has seen nothing before this point."
+        "write them assuming the reader has seen nothing before this point, and in "
+        "the same plain style as narrative."
     )
     if role_config.personality:
         prompt += f"\n\nYour working style: {role_config.personality}"
@@ -129,13 +134,19 @@ def _tool_schema(triggers: list[str]) -> dict[str, Any]:
                 "trigger": {"type": "string", "enum": triggers},
                 "narrative": {
                     "type": "string",
-                    "description": "Short status update, visible in the team's shared log.",
+                    "description": (
+                        "Plain-language status update for a shared team chat - no code, "
+                        "paths, commands, or error output."
+                    ),
                 },
-                "handoff_done": {"type": "string", "description": "What's been completed."},
-                "handoff_remaining": {"type": "string", "description": "What's left."},
+                "handoff_done": {
+                    "type": "string",
+                    "description": "What's been completed, in plain language.",
+                },
+                "handoff_remaining": {"type": "string", "description": "What's left, in plain language."},
                 "handoff_notes_for_next": {
                     "type": "string",
-                    "description": "Anything the next agent needs to know.",
+                    "description": "Anything the next agent needs to know, in plain language.",
                 },
             },
             "required": [
@@ -359,6 +370,13 @@ class ClaudeAgent:
         total_prompt = 0
         total_completion = 0
         final_args: dict[str, Any] | None = None
+        # Correlates this turn's logged tool_call/tool_result messages
+        # (Message.parent_id) back to the one narrative message this turn
+        # produces (whose own id is forced to this value below) - lets the
+        # dashboard hide raw tool activity by default and reveal it as a
+        # "Logs" toggle on the message it belongs to, instead of dumping
+        # every read_file/run_command call into the main chat feed.
+        turn_id = uuid4()
         # Whether a git_commit call has actually succeeded yet this turn -
         # checked structurally below rather than trusted from the model's
         # own narrative, for the same reason AWAITING_TEST's pass/fail
@@ -382,7 +400,7 @@ class ClaudeAgent:
             declare_block = next((b for b in tool_use_blocks if b.name == _TOOL_NAME), None)
             other_blocks = [b for b in tool_use_blocks if b is not declare_block]
 
-            tool_results = [self._run_and_log_tool(context, sandbox, block) for block in other_blocks]
+            tool_results = [self._run_and_log_tool(context, sandbox, block, turn_id) for block in other_blocks]
             has_committed = has_committed or any(
                 block.name == "git_commit" and not result["is_error"]
                 for block, result in zip(other_blocks, tool_results)
@@ -461,11 +479,13 @@ class ClaudeAgent:
             final_args["narrative"] = f"[submitted without committing] {final_args['narrative']}"
 
         return AgentResponse(
-            message=self._build_message(context, final_args, total_prompt, total_completion),
+            message=self._build_message(context, final_args, total_prompt, total_completion, message_id=turn_id),
             trigger=final_args["trigger"],
         )
 
-    def _run_and_log_tool(self, context: AgentContext, sandbox: SandboxController, block: Any) -> dict[str, Any]:
+    def _run_and_log_tool(
+        self, context: AgentContext, sandbox: SandboxController, block: Any, turn_id: UUID
+    ) -> dict[str, Any]:
         result_text, is_error = _execute_sandbox_tool(sandbox, block.name, block.input)
         if self._event_log is not None:
             sender = AgentRef(role=self.role, instance_id=self.instance_id)
@@ -475,7 +495,8 @@ class ClaudeAgent:
                     channel_id=context.channel_id,
                     ticket_ref=context.ticket.id,
                     type=MessageType.TOOL_CALL,
-                    content=MessageContent(text=f"{block.name}({block.input})"),
+                    parent_id=turn_id,
+                    content=MessageContent(text=_truncate(f"{block.name}({block.input})")),
                 )
             )
             self._event_log.append_message(
@@ -484,14 +505,28 @@ class ClaudeAgent:
                     channel_id=context.channel_id,
                     ticket_ref=context.ticket.id,
                     type=MessageType.TOOL_RESULT,
+                    parent_id=turn_id,
                     content=MessageContent(text=f"{'ERROR: ' if is_error else ''}{result_text}"),
                 )
             )
         return {"type": "tool_result", "tool_use_id": block.id, "content": result_text, "is_error": is_error}
 
     def _build_message(
-        self, context: AgentContext, args: dict[str, Any], prompt_tokens: int, completion_tokens: int
+        self,
+        context: AgentContext,
+        args: dict[str, Any],
+        prompt_tokens: int,
+        completion_tokens: int,
+        message_id: UUID | None = None,
     ) -> Message:
+        fields: dict[str, Any] = {}
+        if message_id is not None:
+            # Lets logged tool_call/tool_result messages (Message.parent_id)
+            # correlate back to this exact message - see _invoke_in_progress's
+            # turn_id comment. Only the in-progress path passes this; every
+            # other stage has no associated tool activity to correlate, so
+            # its message keeps its normal randomly-generated id.
+            fields["id"] = message_id
         return Message(
             sender=AgentRef(role=self.role, instance_id=self.instance_id),
             channel_id=context.channel_id,
@@ -506,4 +541,5 @@ class ClaudeAgent:
                 ),
             ),
             token_cost=TokenCost(prompt=prompt_tokens, completion=completion_tokens),
+            **fields,
         )

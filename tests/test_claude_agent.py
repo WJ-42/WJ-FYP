@@ -425,6 +425,22 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
             self.assertIn("write_file", logged[0].content.text)
             self.assertIn("wrote 4 bytes", logged[1].content.text)
             self.assertEqual(result.trigger, "code_submission")
+            # both detail messages correlate back to the one narrative
+            # message this turn produces, so the dashboard can hide them by
+            # default and reveal them as a "Logs" toggle on that message.
+            self.assertEqual(logged[0].parent_id, result.message.id)
+            self.assertEqual(logged[1].parent_id, result.message.id)
+
+    def test_narrative_instructions_ask_for_plain_language_not_code(self) -> None:
+        client = _FakeClient(_declare_args("approved"))
+        agent = ClaudeAgent(_cto_role(), "cto-1", client=client)
+
+        agent.invoke(_context(TicketStatus.REVIEW))
+
+        call = client.captured_calls[0]
+        self.assertIn("plain", call["system"].lower())
+        narrative_description = call["tools"][0]["input_schema"]["properties"]["narrative"]["description"]
+        self.assertIn("no code, paths, commands, or error output", narrative_description)
 
 
 @unittest.skipUnless(

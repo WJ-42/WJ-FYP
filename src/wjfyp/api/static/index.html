@@ -12,7 +12,18 @@
     --border: #2b2f38;
     --text: #e6e8eb;
     --muted: #8a8f98;
+    /* Slightly lighter than --muted, for small interactive text
+       (toggle buttons) that should read comfortably above WCAG AA's
+       4.5:1 rather than sit close to the line the way --muted itself
+       does on --panel (~5:1). */
+    --muted-strong: #a5abb5;
     --accent: #5b8def;
+    /* Darker than --accent specifically for solid fills carrying white
+       text (nav active tab, primary buttons) - white-on-#5b8def is only
+       3.2:1, failing WCAG AA's 4.5:1 for normal text; this pairing
+       clears it (~4.7:1). --accent itself stays unchanged for borders/
+       hover rings, where this contrast rule doesn't apply. */
+    --accent-strong: #4570cc;
 
     /* Role-tier palette: distinct, same-lightness hues so tier reads by
        color AND position (CTO always highest) - never color alone. */
@@ -58,7 +69,7 @@
     transition: background .15s ease, color .15s ease, border-color .15s ease;
   }
   nav button:hover { color: var(--text); border-color: #3a3f4a; }
-  nav button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  nav button.active { background: var(--accent-strong); color: white; border-color: var(--accent-strong); }
   main { flex: 1; overflow: hidden; display: flex; }
   .view { flex: 1; overflow: auto; padding: var(--space-4); display: none; opacity: 0; }
   .view.active { display: block; opacity: 1; animation: fade-in .18s ease; }
@@ -84,6 +95,30 @@
   .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; }
   .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
   .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+
+  /* "Show N more lines" - a generic fallback for any message whose text
+     turns out to be multi-line despite the plain-language prompting
+     (e.g. the deterministic sandbox test-result message, which always
+     is), so a wall of text never dumps into the feed unasked. */
+  .text-toggle {
+    background: none; border: none; color: var(--muted-strong); cursor: pointer; font-size: 12px;
+    padding: 4px 0 0; display: block;
+  }
+  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--text); font-family: inherit; }
+
+  /* Logs toggle - reveals the raw tool_call/tool_result messages an
+     agent's turn produced (correlated via Message.parent_id), hidden
+     from the main feed by default per the "human chat, not code dump"
+     design: the narrative message is the human-readable summary, Logs
+     is where the tool-by-tool detail lives for anyone who wants it. */
+  .logs-toggle {
+    background: none; border: 1px solid var(--border); color: var(--muted-strong); cursor: pointer;
+    font-size: 11px; padding: 3px 9px; border-radius: 10px; margin-top: 8px;
+  }
+  .logs-toggle:hover { color: var(--text); border-color: #3a3f4a; }
+  .logs-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+  .logs-panel[hidden] { display: none; } /* author display:flex above otherwise beats the UA [hidden] rule */
+  .logs-panel .msg { box-shadow: none; padding: 8px 10px; }
 
   /* Kanban - horizontal overflow scrolls at the .view level; the fix
      here is making that scrollbar visible at all (a thin default
@@ -133,7 +168,7 @@
   }
   #modal-decision .buttons { display: flex; gap: 8px; }
   #modal-decision button {
-    background: var(--accent); color: white; border: none; border-radius: 6px;
+    background: var(--accent-strong); color: white; border: none; border-radius: 6px;
     padding: 6px 12px; cursor: pointer; font-size: 13px;
   }
   #modal-decision button.secondary { background: none; border: 1px solid var(--border); color: var(--text); }
@@ -157,7 +192,7 @@
     flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit;
   }
-  #role-form button { align-self: flex-start; background: var(--accent); color: white; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  #role-form button { align-self: flex-start; background: var(--accent-strong); color: white; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
   #role-form .error { color: #e06767; font-size: 12px; }
 </style>
 </head>
@@ -209,6 +244,32 @@
 <script>
 const STATUS_COLUMNS = ["intake", "backlog", "specd", "in_progress", "awaiting_test", "review", "done", "escalated", "halted"];
 
+// message id -> its tool_call/tool_result detail messages (Message.parent_id
+// - see claude_agent.py's turn_id). These never render as their own feed/
+// thread entries; they're stashed here and surfaced only via the "Logs"
+// toggle on the one narrative message they belong to, per the "human chat
+// feed, not a code dump" design. Global (not per-view) since the feed and
+// the ticket-thread modal both draw from the same message stream and a
+// message's details only need parsing out of the raw list once.
+const detailsByParentId = new Map();
+
+// A message with a parent_id is tool activity belonging to another
+// message's turn (see claude_agent.py's ClaudeAgent) - stash it rather
+// than rendering it as its own entry. Safe to call messages through this
+// one at a time, in order, whether that order comes from a bulk history
+// fetch or a live websocket stream one at a time: the event log always
+// serves oldest-first (see EventLog.get_all_messages/
+// get_messages_for_ticket), and a turn's tool activity is always logged
+// strictly before the narrative message that ends that turn, so by the
+// time a parent is processed, all of its own details are already stashed.
+function stashIfDetail(m) {
+  if (!m.parent_id) return false;
+  const list = detailsByParentId.get(m.parent_id) || [];
+  list.push(m);
+  detailsByParentId.set(m.parent_id, list);
+  return true;
+}
+
 // role id -> tier, used to color-code every place a role shows up (feed,
 // kanban assignee, roles tab) with the same visual language, so the
 // CTO -> Product -> Engineering hierarchy reads at a glance rather than
@@ -227,7 +288,37 @@ async function loadRoleTiers() {
   roles.forEach(r => roleTierById[r.id] = r.tier);
 }
 
-function renderMessage(m) {
+// A message's own text is expected to be one plain-language line (see
+// claude_agent.py's narrative prompting) - but the deterministic sandbox
+// test-result message is always multi-line raw pytest output, and a model
+// could still ignore the instruction. Either way, only the first line
+// shows by default; the rest sits behind a "Show N more lines" toggle
+// rather than dumping straight into the feed.
+function renderExpandableText(container, text) {
+  const lines = text.split("\n");
+  container.textContent = lines[0];
+  if (lines.length <= 1) return;
+  const rest = lines.slice(1).join("\n");
+  const toggle = document.createElement("button");
+  toggle.className = "text-toggle";
+  const collapsedLabel = `Show ${lines.length - 1} more line${lines.length === 2 ? "" : "s"}`;
+  toggle.textContent = collapsedLabel;
+  const restEl = document.createElement("pre");
+  restEl.className = "text-rest";
+  restEl.textContent = rest;
+  restEl.hidden = true;
+  toggle.onclick = () => {
+    restEl.hidden = !restEl.hidden;
+    toggle.textContent = restEl.hidden ? collapsedLabel : "Hide";
+  };
+  container.after(toggle, restEl);
+}
+
+// Renders one message. `depth` distinguishes a top-level feed/thread entry
+// (0 - may carry a Logs toggle for its own detail messages) from a message
+// rendered INSIDE a Logs panel (1 - a detail message itself, never carries
+// its own toggle since detail messages don't have further detail).
+function renderMessage(m, depth = 0) {
   const el = document.createElement("div");
   el.className = "msg";
   el.dataset.type = m.type;
@@ -235,12 +326,28 @@ function renderMessage(m) {
   if (tierClass) el.style.borderLeftColor = `var(--${tierClass})`;
   const time = new Date(m.timestamp).toLocaleTimeString();
   el.innerHTML = `<div class="meta"><span class="role ${tierClass}"><span class="tier-dot ${tierClass}"></span>${m.sender.role}</span><span>${m.sender.instance_id}</span><span>${m.type}</span><span>${time}</span></div><div class="text"></div>`;
-  el.querySelector(".text").textContent = m.content.text;
+  renderExpandableText(el.querySelector(".text"), m.content.text);
+
+  if (depth === 0) {
+    const details = detailsByParentId.get(m.id);
+    if (details && details.length) {
+      const toggle = document.createElement("button");
+      toggle.className = "logs-toggle";
+      toggle.textContent = `Logs (${details.length})`;
+      const panel = document.createElement("div");
+      panel.className = "logs-panel";
+      panel.hidden = true;
+      details.forEach(d => panel.appendChild(renderMessage(d, 1)));
+      toggle.onclick = () => { panel.hidden = !panel.hidden; };
+      el.append(toggle, panel);
+    }
+  }
   return el;
 }
 
 const feedEl = document.getElementById("feed");
 function appendToFeed(m) {
+  if (stashIfDetail(m)) return;
   feedEl.appendChild(renderMessage(m));
   feedEl.scrollTop = feedEl.scrollHeight;
 }
@@ -318,7 +425,10 @@ async function openThread(ticket) {
   modalTitle.textContent = `${ticket.id} — ${ticket.title}`;
   modalThread.innerHTML = "";
   const messages = await fetch(`/api/tickets/${ticket.id}/messages`).then(r => r.json());
-  messages.forEach(m => modalThread.appendChild(renderMessage(m)));
+  messages.forEach(m => {
+    if (stashIfDetail(m)) return;
+    modalThread.appendChild(renderMessage(m));
+  });
   renderDecisionPanel(ticket);
   modalBackdrop.classList.add("open");
 }
@@ -473,9 +583,16 @@ function connectWebSocket() {
   ws.onmessage = ev => {
     const { type, data } = JSON.parse(ev.data);
     if (type === "message") {
-      appendToFeed(data);
-      if (modalBackdrop.classList.contains("open") && data.ticket_ref && ticketsById[data.ticket_ref]) {
-        modalThread.appendChild(renderMessage(data));
+      // Stashed at most once here, and the boolean reused for both the
+      // feed and the modal - calling stashIfDetail twice for the same
+      // message (once per surface) would double-count it in its parent's
+      // Logs panel.
+      if (!stashIfDetail(data)) {
+        feedEl.appendChild(renderMessage(data));
+        feedEl.scrollTop = feedEl.scrollHeight;
+        if (modalBackdrop.classList.contains("open") && data.ticket_ref && ticketsById[data.ticket_ref]) {
+          modalThread.appendChild(renderMessage(data));
+        }
       }
     } else if (type === "ticket_update") {
       ticketsById[data.id] = data;
