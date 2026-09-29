@@ -16,7 +16,7 @@
     // Kept in sync by hand with the VALID_THEMES/VALID_FONTS lists in
     // the main <script> at the bottom of the page - this copy exists
     // only so it can run before that script (and the stylesheet) load.
-    var VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+    var VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black", "cyberpunk"];
     var VALID_FONTS = ["jetbrains", "firacode", "cascadia", "victor", "plex"];
     try {
       var root = document.documentElement;
@@ -76,9 +76,13 @@
        clears 4.5:1 as text (verified with a real luminance calc, not
        eyeballed - see contrast_dark2.py from the session that built
        this), so tier-N and tier-N-dot are the same value here, unlike
-       the light theme where the text variant had to be darkened. */
-    --tier-3: #e2a53a;
-    --tier-3-dot: #e2a53a;
+       the light theme where the text variant had to be darkened.
+       tier-3 was originally amber/yellow but that read as too close to
+       the "hazard" yellow the Omarchy themes' own accents use in
+       places - a warm red keeps CTO's "authority" association without
+       colliding with any of the ported themes' palettes. */
+    --tier-3: #e6736d;
+    --tier-3-dot: #e0524a;
     --tier-2: #b083f0;
     --tier-2-dot: #b083f0;
     --tier-1: #5ec2e0;
@@ -142,7 +146,7 @@
     --emphasis-text: #ffffff;
     --sunken-text: #eef1e7;
     --sunken-text-soft: #b9c2af;
-    --tier-3: #8a5a0a;
+    --tier-3: #d32d24;
     --tier-2: #6e3fa6;
     --tier-1: #096b7e;
     --tier-system: #1e7a4b;
@@ -373,6 +377,36 @@
     --tier-system-dot: #FFC107;
   }
 
+  /* Cyberpunk - not an Omarchy port like the rest; a genuinely custom
+     original built for the neon-yellow-on-black identity that no
+     longer fits the native Dark/Light pair once CTO moved off yellow.
+     Contrast-verified the same way as every other theme here. */
+  :root[data-theme="cyberpunk"] {
+    color-scheme: dark;
+    --wash: #0a0a0c;
+    --surface: #101014;
+    --surface-raised: #17171d;
+    --surface-sunken: #050506;
+    --line: #2a2a33;
+    --line-strong: #3d3d4a;
+    --text: #f5f5f0;
+    --text-soft: #c4c4d1;
+    --muted: #8a8a9e;
+    --accent: #f4e409;
+    --accent-ink: #14170f;
+    --emphasis-fill: #f5f5f0;
+    --emphasis-text: #050506;
+    --sunken-text: #f5f5f0;
+    --sunken-text-soft: #c4c4d1;
+    --tier-3: #f4e409;
+    --tier-3-dot: #f4e409;
+    --tier-2: #ff3fa4;
+    --tier-2-dot: #ff3fa4;
+    --tier-1: #00e5ff;
+    --tier-1-dot: #00e5ff;
+    --tier-system: #39ff14;
+    --tier-system-dot: #39ff14;
+  }
 
   /* High contrast: pushes borders and secondary/tertiary text further
      from the background than the default palette's calmer values,
@@ -496,10 +530,10 @@
 
   /* KPI row - persists across tabs, since ticket/message counts and the
      "needs you" state matter regardless of which view is open. */
-  .kpi-row { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: var(--space-3); }
+  .kpi-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-3); }
   .kpi-card {
     background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
-    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+    padding: 16px 18px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; min-width: 0;
   }
   .kpi-card.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .kpi-card.dark { background: var(--surface-sunken); border-color: var(--surface-sunken); color: var(--sunken-text); }
@@ -546,7 +580,7 @@
   .pill:hover { border-color: var(--line-strong); }
   .pill.active { background: var(--emphasis-fill); border-color: var(--emphasis-fill); color: var(--emphasis-text); }
 
-  main.view-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+  .view-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }
   .view { display: none; }
   .view.active { display: block; animation: fade-in .18s ease; }
   /* Kanban manages its own scrolling (vertical per column, horizontal
@@ -964,8 +998,8 @@
             <button class="pill" data-value="everforest">Everforest</button>
             <button class="pill" data-value="rose-pine">Rosé Pine</button>
             <button class="pill" data-value="matte-black">Matte Black</button>
+            <button class="pill" data-value="cyberpunk">Cyberpunk</button>
           </div>
-          <p class="settings-local-note" style="margin-top:0;">Ported from Omarchy's shipped themes.</p>
         </div>
         <div class="settings-row stack">
           <span class="label">Font</span>
@@ -986,7 +1020,6 @@
               <span class="track"></span>
             </label>
           </div>
-          <p class="settings-local-note" style="margin-top:0;">Omarchy's own font choices - JetBrains Mono is its default.</p>
         </div>
         <div class="settings-row stack">
           <span class="label">Density</span>
@@ -1756,7 +1789,7 @@ const root = document.documentElement;
 // comment above :root[data-theme="light"] for where the values come
 // from). Kept in sync by hand with the VALID_THEMES copy in the early
 // <head> script.
-const VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+const VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black", "cyberpunk"];
 // The 5 fonts always have exactly one selected - no "no font chosen"
 // state - so applyFont always sets a real value, falling back to
 // jetbrains (Omarchy's own default) rather than deleting the attribute.
