@@ -66,6 +66,20 @@ class ScriptedAgent:
         return AgentResponse(message=message, trigger=trigger)
 
 
+class _RaisingAgent:
+    """Simulates any exception raised mid-invoke - a SpendGuard trip
+    being the real case that found FYP-32, but the fix (and this test)
+    deliberately don't care which exception, only that a sandbox open at
+    the time still gets closed.
+    """
+
+    role = "engineering"
+    instance_id = "engineering-1"
+
+    def invoke(self, context: AgentContext) -> AgentResponse:
+        raise RuntimeError("simulated mid-turn failure")
+
+
 def _make_ticket() -> Ticket:
     return Ticket(id="TCK-1", title="Test ticket", description="...")
 
@@ -632,6 +646,32 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertTrue(not result.advanced)
         self.assertEqual(result.ticket.status, TicketStatus.HALTED)
         self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
+
+    def test_an_exception_mid_turn_still_closes_the_open_sandbox(self) -> None:
+        """FYP-32: found for real when SpendGuard.check() tripped mid an
+        in_progress turn - the exception used to unwind straight out of
+        step() with that attempt's sandbox left open (three real Docker
+        containers were found still running after this happened live).
+        Uses a plain RuntimeError rather than BudgetExceededError
+        specifically, since the fix doesn't care which exception - any
+        failure mid-turn must still close whatever sandbox was open.
+        """
+        ticket = Ticket(
+            id="TCK-1", title="Test ticket", description="...",
+            status=TicketStatus.IN_PROGRESS, branch_name="ticket/TCK-1",
+        )
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = {"engineering": [_RaisingAgent()]}
+        sandbox = FakeSandboxController()
+
+        with self.assertRaises(RuntimeError):
+            step(
+                ticket, channel, self.event_log, agents,
+                sandbox_factory=lambda _ticket: sandbox, settings=settings,
+            )
+
+        self.assertTrue(sandbox.closed)
 
 
 if __name__ == "__main__":

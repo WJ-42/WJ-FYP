@@ -315,7 +315,20 @@ def step(
         handoff=event_log.last_handoff(channel.id),
         sandbox=sandbox,
     )
-    response = agent.invoke(context)
+    try:
+        response = agent.invoke(context)
+    except Exception:
+        # FYP-32: found for real when SpendGuard.check() trips mid-turn -
+        # the exception unwinds straight out of here with an in_progress
+        # attempt's sandbox still open, since the normal close() only
+        # happens at _step_awaiting_test once a turn finishes cleanly.
+        # Closes for ANY exception, not just the anticipated one, same
+        # "don't let a failure leave things half-cleaned-up" principle as
+        # everywhere else in this project that wraps a resource lifecycle
+        # in its own try/finally rather than trusting the happy path.
+        if sandbox is not None:
+            sandbox.close()
+        raise
     event_log.append_message(response.message)
     trigger = response.trigger
 
