@@ -10,6 +10,7 @@ import unittest
 
 from wjfyp.models.ticket import TicketStatus
 from wjfyp.orchestrator.fsm import (
+    EMPTY_DIFF_TRIGGER,
     ESCALATION_COUNTED_TRIGGERS,
     ESCALATION_OVERFLOW_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
@@ -37,12 +38,13 @@ class RetryOverflowFsmTest(unittest.TestCase):
             TicketStatus.ESCALATED,
         )
 
-    def test_retry_counted_triggers_cover_exactly_the_two_loop_back_edges(self) -> None:
+    def test_retry_counted_triggers_cover_exactly_the_known_loop_back_edges(self) -> None:
         self.assertEqual(
             RETRY_COUNTED_TRIGGERS,
             {
                 (TicketStatus.AWAITING_TEST, "tests_failed"),
                 (TicketStatus.REVIEW, "changes_requested"),
+                (TicketStatus.REVIEW, "empty_diff"),
             },
         )
 
@@ -89,6 +91,33 @@ class EscalationOverflowFsmTest(unittest.TestCase):
         self.assertEqual(
             set(agent_facing_triggers(TicketStatus.ESCALATED)),
             {"cto_override", "cto_cannot_resolve"},
+        )
+
+
+class EmptyDiffFsmTest(unittest.TestCase):
+    """FYP-31: an approved review with an empty diff must be redirected
+    back to engineering, not merged - see loop.py's
+    _apply_empty_diff_guard for the actual diff check.
+    """
+
+    def test_review_has_a_real_transition_to_in_progress_on_empty_diff(self) -> None:
+        self.assertEqual(
+            next_state(TicketStatus.REVIEW, EMPTY_DIFF_TRIGGER),
+            TicketStatus.IN_PROGRESS,
+        )
+
+    def test_empty_diff_shares_the_same_retry_budget_as_the_other_loop_back_edges(self) -> None:
+        self.assertIn((TicketStatus.REVIEW, EMPTY_DIFF_TRIGGER), RETRY_COUNTED_TRIGGERS)
+
+    def test_agent_facing_triggers_hides_empty_diff_from_review(self) -> None:
+        """The CTO must never be offered this trigger directly - it's the
+        orchestrator's own deterministic check on the merge, not a
+        choice for the CTO to declare it wants to make.
+        """
+        self.assertIn(EMPTY_DIFF_TRIGGER, valid_triggers(TicketStatus.REVIEW))
+        self.assertNotIn(EMPTY_DIFF_TRIGGER, agent_facing_triggers(TicketStatus.REVIEW))
+        self.assertEqual(
+            set(agent_facing_triggers(TicketStatus.REVIEW)), {"approved", "changes_requested"}
         )
 
 

@@ -46,10 +46,10 @@ _CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
 # separately in AgentResponse), so a wrong or missing entry here can't
 # affect orchestration, only how the message reads in the feed. Triggers
 # not listed here (tests_passed, tests_failed, retry_cap_exceeded,
-# escalation_cap_exceeded) are always decided deterministically by the
-# orchestrator itself, never by an agent turn (see fsm.py's
-# agent_facing_triggers and loop.py's _apply_retry_budget/
-# _apply_escalation_budget/_step_awaiting_test).
+# escalation_cap_exceeded, empty_diff) are always decided
+# deterministically by the orchestrator itself, never by an agent turn
+# (see fsm.py's agent_facing_triggers and loop.py's _apply_retry_budget/
+# _apply_escalation_budget/_apply_empty_diff_guard/_step_awaiting_test).
 _MESSAGE_TYPE_FOR_TRIGGER: dict[str, MessageType] = {
     "decomposed": MessageType.HANDOFF,
     "spec_ready": MessageType.HANDOFF,

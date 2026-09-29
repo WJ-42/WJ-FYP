@@ -77,6 +77,21 @@ TRANSITIONS: list[Transition] = [
     # the other overflow triggers: this is the orchestrator enforcing a
     # hard limit, not a choice for a human or the CTO agent to make.
     Transition(TicketStatus.ESCALATED, TicketStatus.HALTED, "escalation_cap_exceeded"),
+    # Added FYP-31: found for real running the first genuinely successful
+    # Option B comparison - the in_progress iteration-budget fallback
+    # (claude_agent.py) can force a code_submission through with no
+    # commit ever having happened, flagged "[submitted without
+    # committing]" in its narrative, and nothing stopped the CTO
+    # approving that narrative anyway. approved must not be trusted to
+    # actually mean "there is something real to merge" - the merge step
+    # itself checks the diff deterministically (see loop.py's
+    # _apply_empty_diff_guard) and overrides to this trigger instead of
+    # letting an empty approval through, same "don't let a failure look
+    # like success" principle as git_commit's _exec_checked. Not gated by
+    # requires_approval, same reasoning as every other orchestrator-only
+    # override here: the system is refusing a merge that has nothing in
+    # it, not asking a human to weigh in on whether it should.
+    Transition(TicketStatus.REVIEW, TicketStatus.IN_PROGRESS, "empty_diff"),
 ]
 
 _TRANSITION_INDEX: dict[tuple[TicketStatus, str], Transition] = {
@@ -100,7 +115,19 @@ RETRY_OVERFLOW_TRIGGER = "retry_cap_exceeded"
 RETRY_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
     (TicketStatus.AWAITING_TEST, "tests_failed"),
     (TicketStatus.REVIEW, "changes_requested"),
+    # Added FYP-31: an empty-diff approval is functionally the same
+    # "engineering needs to redo this" event as a failed test or a
+    # genuine review rejection - a persistently-uncommitted engineer
+    # could otherwise loop this edge forever exactly like the other two
+    # did before they shared this budget.
+    (TicketStatus.REVIEW, "empty_diff"),
 }
+
+# The orchestrator-only trigger the merge step overrides "approved" to
+# when a review's diff against base is empty - see
+# loop.py's _apply_empty_diff_guard and the REVIEW -> IN_PROGRESS
+# "empty_diff" transition's own comment above (FYP-31).
+EMPTY_DIFF_TRIGGER = "empty_diff"
 
 # The orchestrator-only trigger cto_override escalates to once
 # Ticket.escalation_cap is exceeded - a second, one-level-up instance of
@@ -120,9 +147,14 @@ ESCALATION_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
     (TicketStatus.ESCALATED, "cto_override"),
 }
 
-# Every trigger the orchestrator decides for itself once some budget runs
-# out, never a real choice offered to an agent (see agent_facing_triggers).
-ORCHESTRATOR_ONLY_TRIGGERS: set[str] = {RETRY_OVERFLOW_TRIGGER, ESCALATION_OVERFLOW_TRIGGER}
+# Every trigger the orchestrator decides for itself - either a budget
+# ran out, or (EMPTY_DIFF_TRIGGER) a structural check failed - never a
+# real choice offered to an agent (see agent_facing_triggers).
+ORCHESTRATOR_ONLY_TRIGGERS: set[str] = {
+    RETRY_OVERFLOW_TRIGGER,
+    ESCALATION_OVERFLOW_TRIGGER,
+    EMPTY_DIFF_TRIGGER,
+}
 
 
 def next_state(current: TicketStatus, trigger: str) -> TicketStatus:

@@ -24,7 +24,7 @@ from wjfyp.models.message import (
 )
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import AgentContext, AgentResponse
-from wjfyp.orchestrator.loop import resume, run
+from wjfyp.orchestrator.loop import resume, run, step
 from wjfyp.sandbox.controller import TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
 from wjfyp.sandbox.git_workspace import GitWorkspace
@@ -474,6 +474,26 @@ class OrchestratorLoopTest(unittest.TestCase):
         subprocess.run(["git", "-C", str(repo_path), "checkout", "main"], check=True, capture_output=True)
         return workspace
 
+    def _real_workspace_with_an_empty_ticket_branch(self, ticket: Ticket) -> GitWorkspace:
+        """Like _real_workspace_with_a_ticket_branch_commit, but the
+        ticket branch is created and never given any commit of its own -
+        simulating FYP-31's real trigger: an engineer whose work never
+        actually got committed, so the branch sits identical to base.
+        """
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        repo_path = Path(tmpdir.name)
+        subprocess.run(["git", "init", "-b", "main", str(repo_path)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Test"], check=True)
+        (repo_path / "README.md").write_text("hello\n")
+        subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo_path), "commit", "-m", "initial"], check=True, capture_output=True)
+
+        workspace = GitWorkspace(repo_path, default_base="main")
+        workspace.ensure_branch(ticket)
+        return workspace
+
     def test_approving_in_autonomous_mode_merges_into_the_workspace(self) -> None:
         ticket = Ticket(id="TCK-1", title="Test ticket", description="...", branch_name="ticket/TCK-1")
         channel = _make_channel(ticket)
@@ -507,6 +527,12 @@ class OrchestratorLoopTest(unittest.TestCase):
         sandbox_factory = _sandbox_factory_with_results([_test_result(passed=True)])
 
         class _PoisonWorkspace:
+            def diff_against_base(self, _branch_name: str) -> str:
+                # Non-empty: this test is specifically about a real
+                # conflict during merge(), not FYP-31's empty-diff guard -
+                # a real diff must exist to reach merge() at all.
+                return "+ real change"
+
             def merge(self, _ticket: Ticket) -> str:
                 raise RuntimeError("simulated merge conflict")
 
@@ -538,6 +564,74 @@ class OrchestratorLoopTest(unittest.TestCase):
 
         self.assertEqual(final.ticket.status, TicketStatus.DONE)
         self.assertTrue((workspace.repo_path / "feature.txt").exists())
+
+    def test_approving_an_empty_diff_is_redirected_to_in_progress_not_merged(self) -> None:
+        """FYP-31: found for real running the first genuinely successful
+        Option B comparison - the in_progress iteration-budget fallback
+        can force a code_submission through with no commit ever having
+        happened, and the CTO approved it anyway. The merge step itself
+        must refuse regardless of what the CTO decided.
+        """
+        ticket = Ticket(
+            id="TCK-1", title="Test ticket", description="...",
+            status=TicketStatus.REVIEW, branch_name="ticket/TCK-1",
+        )
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(cto=["approved"])
+        workspace = self._real_workspace_with_an_empty_ticket_branch(ticket)
+        main_sha_before = subprocess.run(
+            ["git", "-C", str(workspace.repo_path), "rev-parse", "main"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+        result = step(
+            ticket, channel, self.event_log, agents,
+            sandbox_factory=lambda _ticket: None, settings=settings, workspace=workspace,
+        )
+
+        # The transition still fires (redirected, not blocked outright) -
+        # just not to Done, and not via a real merge.
+        self.assertTrue(result.advanced)
+        self.assertEqual(result.ticket.status, TicketStatus.IN_PROGRESS)
+        self.assertEqual(result.ticket.retry_count, 1)
+        main_sha_after = subprocess.run(
+            ["git", "-C", str(workspace.repo_path), "rev-parse", "main"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        self.assertEqual(main_sha_before, main_sha_after)  # no merge commit was created
+
+    def test_repeated_empty_diff_approvals_share_the_retry_budget_and_escalate(self) -> None:
+        """Same shared-budget principle as the review-rejection and
+        test-failure loops - a persistently-uncommitted engineer (or a
+        CTO that keeps approving one) must not be able to cycle this
+        edge forever either.
+        """
+        ticket = _make_ticket()
+        ticket = ticket.model_copy(update={"branch_name": "ticket/TCK-1"})
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "approved", "approved", "approved", "approved", "cto_cannot_resolve"],
+            product=["spec_ready"],
+            engineering=[
+                "assigned",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+            ],
+        )
+        sandbox_factory = _sandbox_factory_with_results(
+            [_test_result(passed=True) for _ in range(4)]
+        )
+        workspace = self._real_workspace_with_an_empty_ticket_branch(ticket)
+
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings, workspace=workspace)
+
+        self.assertTrue(not result.advanced)
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
 
 
 if __name__ == "__main__":

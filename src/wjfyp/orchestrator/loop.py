@@ -10,6 +10,7 @@ from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent,
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
 from wjfyp.orchestrator.fsm import (
+    EMPTY_DIFF_TRIGGER,
     ESCALATION_COUNTED_TRIGGERS,
     ESCALATION_OVERFLOW_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
@@ -101,6 +102,41 @@ def _apply_escalation_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]
         "escalation_cap",
         ESCALATION_OVERFLOW_TRIGGER,
     )
+
+
+def _apply_empty_diff_guard(
+    ticket: Ticket, trigger: str, workspace: GitWorkspace | None
+) -> tuple[Ticket, str]:
+    """Refuses to let an "approved" review transition merge an empty
+    diff (FYP-31). Found for real running the first genuinely successful
+    Option B comparison: ClaudeAgent._invoke_in_progress's iteration-
+    budget fallback can force a code_submission through with no commit
+    ever having happened (flagged "[submitted without committing]" in
+    its own narrative), but nothing stopped the CTO approving that
+    narrative anyway - an empty change got merged and scored as if real
+    work had landed. Checked deterministically here instead of trusted
+    to the CTO's own judgement, the same "don't let a failure look like
+    success" principle as git_commit's _exec_checked and the
+    code_submission commit gate itself.
+
+    Only applies to (REVIEW, "approved") with a real workspace and a
+    real branch - outside a real run (tests, FakeSandboxController-based
+    eval runs with no git state) there's nothing to diff, the same
+    precedent as _apply_transition's own merge-skip when workspace is
+    None. Call this before _apply_retry_budget, not after: an
+    overridden "empty_diff" trigger is itself one of
+    fsm.RETRY_COUNTED_TRIGGERS, so a persistently-uncommitted engineer
+    still eventually escalates rather than looping this edge forever,
+    exactly like the other two retry-counted edges.
+    """
+    if workspace is None or (ticket.status, trigger) != (TicketStatus.REVIEW, "approved"):
+        return ticket, trigger
+    if not ticket.branch_name:
+        return ticket, trigger
+    diff = workspace.diff_against_base(ticket.branch_name)
+    if diff.strip():
+        return ticket, trigger
+    return ticket, EMPTY_DIFF_TRIGGER
 
 
 @dataclass
@@ -294,6 +330,7 @@ def step(
         event_log.save_ticket(ticket)
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
+    ticket, trigger = _apply_empty_diff_guard(ticket, trigger, workspace)
     ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
@@ -380,7 +417,10 @@ def resume(
     _apply_escalation_budget) - a human repeatedly choosing "request
     changes" or "override" in intervention mode can drive either loop
     exactly as unboundedly as an autonomous CTO agent can, so both draw
-    from the same caps regardless of who's deciding (FYP-27).
+    from the same caps regardless of who's deciding (FYP-27). A human
+    clicking "approve" is equally subject to _apply_empty_diff_guard - an
+    empty diff doesn't become mergeable just because a human, rather than
+    the CTO, was the one who approved it (FYP-31).
     """
     if notes:
         event_log.append_message(
@@ -399,6 +439,7 @@ def resume(
                 ),
             )
         )
+    ticket, trigger = _apply_empty_diff_guard(ticket, trigger, workspace)
     ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
