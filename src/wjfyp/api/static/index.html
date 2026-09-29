@@ -5,7 +5,27 @@
 <title>WJ-FYP Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet" />
+<script>
+  // Applied before the stylesheet paints anything, straight from
+  // localStorage, so a returning viewer's theme/font/accessibility
+  // choices never flash the defaults first. Every read is guarded -
+  // localStorage can throw (private browsing, storage disabled) and
+  // none of these are essential to the page working.
+  (function () {
+    try {
+      var root = document.documentElement;
+      var theme = localStorage.getItem("wjfyp.settings.theme");
+      if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+      var font = localStorage.getItem("wjfyp.settings.font");
+      if (font === "mono" || font === "accessible") root.dataset.font = font;
+      var textSize = localStorage.getItem("wjfyp.settings.textSize");
+      if (textSize === "sm" || textSize === "lg") root.dataset.textsize = textSize;
+      if (localStorage.getItem("wjfyp.settings.reduceMotion") === "1") root.dataset.reduceMotion = "1";
+      if (localStorage.getItem("wjfyp.settings.highContrast") === "1") root.dataset.contrast = "high";
+    } catch {}
+  })();
+</script>
 <style>
   :root {
     color-scheme: dark;
@@ -38,6 +58,14 @@
     --emphasis-fill: #eef1e7;
     --emphasis-text: #14170f;
 
+    /* Text for the sidebar and "Needs you" card specifically: those
+       two sit on --surface-sunken, which stays dark in BOTH themes
+       (see the light-theme override block below), so their text has
+       to stay light in both themes too - unlike --text itself, which
+       flips with the theme because most surfaces do. */
+    --sunken-text: #eef1e7;
+    --sunken-text-soft: #b9c2af;
+
     /* Tier colors: on a dark surface the identity hue itself already
        clears 4.5:1 as text (verified with a real luminance calc, not
        eyeballed - see contrast_dark2.py from the session that built
@@ -66,7 +94,71 @@
     --font-display: "Bricolage Grotesque", system-ui, sans-serif;
     --font-body: "Hanken Grotesk", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+    --text-scale: 1;
   }
+
+  /* Light theme - the palette the dashboard shipped with originally,
+     kept as an alternate rather than deleted, plus the handful of
+     overlay rules that were tuned specifically for a dark surface
+     (kpi-icon/kpi-badge/capsule.off's default state, the modal scrim
+     and shadow) and need the opposite tint on a light one. */
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --wash: #dce3d9;
+    --surface: #f3f6f1;
+    --surface-raised: #ffffff;
+    --surface-sunken: #0e120d;
+    --line: #dfe6db;
+    --line-strong: #c4cec0;
+    --text: #0e120d;
+    --text-soft: #414b42;
+    --muted: #5b665c;
+    --emphasis-fill: #0e120d;
+    --emphasis-text: #ffffff;
+    --tier-3: #8a5a0a;
+    --tier-2: #6e3fa6;
+    --tier-1: #096b7e;
+    --tier-system: #1e7a4b;
+  }
+  :root[data-theme="light"] .kpi-icon { background: rgba(14,18,13,.06); }
+  :root[data-theme="light"] .kpi-badge { background: rgba(14,18,13,.08); }
+  :root[data-theme="light"] .capsule.off { border-color: rgba(14,18,13,.25); }
+  :root[data-theme="light"] #modal-backdrop, :root[data-theme="light"] #settings-backdrop { background: rgba(14,18,13,.45); }
+  :root[data-theme="light"] #modal, :root[data-theme="light"] #settings-modal { box-shadow: 0 24px 60px rgba(14,18,13,.18); }
+
+  /* High contrast: pushes borders and secondary/tertiary text further
+     from the background than the default palette's calmer values,
+     for viewers who need boundaries and low-emphasis text to read as
+     clearly as everything else. */
+  :root[data-contrast="high"] {
+    --line: #56613f; --line-strong: #6b784f; --muted: #c3cdb6; --text-soft: #e6ecdd;
+  }
+  :root[data-theme="light"][data-contrast="high"] {
+    --line: #a8b6a2; --line-strong: #8a9a83; --muted: #2c342a; --text-soft: #181d15;
+  }
+
+  /* Font: "mono" reads everything in the monospace face; "accessible"
+     switches body text to Atkinson Hyperlegible, a typeface designed
+     by the Braille Institute specifically to keep easily-confused
+     letterforms (I/l/1, etc.) visually distinct at small sizes. */
+  :root[data-font="mono"] { --font-body: var(--font-mono); }
+  :root[data-font="accessible"] { --font-body: "Atkinson Hyperlegible", system-ui, sans-serif; }
+
+  /* Text size only scales actual reading content (message bodies,
+     card titles, role descriptions) - not chrome like nav, labels, or
+     buttons, which stay compact regardless so the layout doesn't
+     reflow oddly at the larger step. */
+  :root[data-textsize="sm"] { --text-scale: 0.92; }
+  :root[data-textsize="lg"] { --text-scale: 1.18; }
+
+  /* Reduce motion: collapses every transition/animation duration to
+     effectively zero rather than removing them individually, so a
+     future transition doesn't quietly reintroduce motion here. */
+  :root[data-reduce-motion="1"] *, :root[data-reduce-motion="1"] *::before, :root[data-reduce-motion="1"] *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+  }
+
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -117,6 +209,7 @@
   }
   .nav-item:hover { color: #f3f6f1; background: rgba(255,255,255,.06); }
   .nav-item.active { background: var(--accent); color: var(--accent-ink); }
+  .nav-divider { width: 28px; height: 1px; background: rgba(255,255,255,.1); margin: 2px auto 0; flex: none; }
   .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fae6c; }
   .live-dot.down { background: #c1552f; }
@@ -152,7 +245,7 @@
     padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
   }
   .kpi-card.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .kpi-card.dark { background: var(--surface-sunken); border-color: var(--surface-sunken); color: var(--text); }
+  .kpi-card.dark { background: var(--surface-sunken); border-color: var(--surface-sunken); color: var(--sunken-text); }
   .kpi-head { display: flex; align-items: center; justify-content: space-between; }
   .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
   .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: rgba(255,255,255,.06); display: flex; align-items: center; justify-content: center; }
@@ -185,7 +278,7 @@
     padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .kpi-mini-btn:hover { filter: brightness(1.05); }
-  .kpi-caught-up { font-size: 13px; color: var(--text-soft); }
+  .kpi-caught-up { font-size: 13px; color: var(--sunken-text-soft); }
 
   /* Filter pills */
   .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -223,14 +316,14 @@
   }
   .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
   .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; font-family: var(--font-body); }
-  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: var(--text); }
+  .msg .text { font-size: calc(14px * var(--text-scale)); line-height: 1.55; white-space: pre-wrap; color: var(--text); }
   .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: var(--font-mono); font-size: 12.5px; }
 
   .text-toggle {
     background: none; border: none; color: var(--tier-1); cursor: pointer; font-size: 12px;
     padding: 4px 0 0; display: block; font-weight: 500;
   }
-  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--text-soft); font-family: inherit; }
+  .text-rest { margin: 6px 0 0; font-size: calc(13px * var(--text-scale)); white-space: pre-wrap; color: var(--text-soft); font-family: inherit; }
 
   .logs-toggle {
     background: var(--surface); border: 1px solid var(--line); color: var(--text-soft); cursor: pointer;
@@ -284,7 +377,7 @@
   }
   .card {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
-    padding: 11px 12px; margin-bottom: var(--space-2); cursor: pointer; font-size: 13px;
+    padding: 11px 12px; margin-bottom: var(--space-2); cursor: pointer; font-size: calc(13px * var(--text-scale));
     transition: border-color .15s ease, transform .15s ease;
   }
   .card:hover { border-color: var(--tier-1-dot); transform: translateY(-1px); }
@@ -324,11 +417,77 @@
   #modal-decision button.secondary { background: none; border: 1px solid var(--line); color: var(--text); }
   #modal-decision .status { font-size: 12px; color: var(--muted); }
 
+  /* Settings modal - reuses the ticket modal's backdrop/card pattern
+     (own ids, so both can theoretically exist without clashing) but
+     lays out a few stacked, titled sections instead of a message
+     thread. */
+  #settings-backdrop {
+    position: fixed; inset: 0; background: rgba(3,4,2,.65); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s ease; z-index: 10;
+  }
+  #settings-backdrop.open { display: flex; opacity: 1; }
+  #settings-modal {
+    background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); width: 560px; max-height: 84vh;
+    display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    transform: scale(.98) translateY(4px); transition: transform .15s ease;
+  }
+  #settings-backdrop.open #settings-modal { transform: none; }
+  #settings-modal header {
+    display: flex; align-items: center; border-bottom: 1px solid var(--line); padding: 14px 18px;
+    font-family: var(--font-display); font-size: 16px; font-weight: 700;
+  }
+  #settings-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+  #settings-body { overflow: auto; padding: 4px 18px 18px; display: flex; flex-direction: column; }
+  .settings-section { padding: 16px 0; border-top: 1px solid var(--line); }
+  .settings-section:first-child { border-top: none; }
+  .settings-section h3 { margin: 0 0 3px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
+  .settings-section .hint { margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .settings-row .label { font-size: 13px; font-weight: 500; }
+  .settings-row .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .settings-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Toggle switch - used for the two accessibility on/off settings. */
+  .switch { position: relative; width: 38px; height: 22px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .switch .track {
+    position: absolute; inset: 0; background: var(--line-strong); border-radius: var(--radius-pill);
+    transition: background .15s ease;
+  }
+  .switch .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--text); transition: transform .15s ease;
+  }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: var(--accent-ink); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--tier-1-dot); outline-offset: 2px; }
+
+  .settings-account { display: flex; align-items: center; gap: 14px; }
+  .settings-avatar {
+    width: 56px; height: 56px; border-radius: 50%; flex: none; overflow: hidden;
+    background: var(--accent); color: var(--accent-ink); display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 18px;
+  }
+  .settings-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .settings-account-actions { display: flex; flex-direction: column; gap: 6px; }
+  .settings-btn {
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-pill);
+    padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; align-self: flex-start;
+  }
+  .settings-btn:hover { border-color: var(--line-strong); }
+  .settings-btn.primary { background: var(--emphasis-fill); color: var(--emphasis-text); border-color: var(--emphasis-fill); }
+  .settings-signin { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .settings-signin input {
+    background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .settings-local-note { font-size: 11px; color: var(--muted); margin-top: 10px; }
+
   /* Roles */
   #roles-panel { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); padding-bottom: 8px; }
   .role-row {
     background: var(--surface-raised); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius-md);
-    padding: 13px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px;
+    padding: 13px 16px; display: flex; align-items: center; gap: 10px; font-size: calc(13px * var(--text-scale));
   }
   .role-row .name { font-weight: 600; font-family: var(--font-display); }
   .role-row .meta { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
@@ -386,6 +545,10 @@
       </button>
       <button id="tab-roles" class="nav-item" title="Roles" aria-label="Roles">
         <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.3"/><path d="M15.8 14.2c2.7.4 4.7 2.5 4.7 5.8"/></svg>
+      </button>
+      <div class="nav-divider"></div>
+      <button id="open-settings" class="nav-item" title="Settings" aria-label="Settings">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10.6a1.7 1.7 0 0 0 1-1.55V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10.6a1.7 1.7 0 0 0 1.55 1H19.5a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>
       </button>
     </nav>
     <div class="sidebar-foot">
@@ -503,6 +666,97 @@
     </header>
     <div id="modal-thread"></div>
     <div id="modal-decision" style="display:none;"></div>
+  </div>
+</div>
+
+<div id="settings-backdrop">
+  <div id="settings-modal">
+    <header>
+      Settings
+      <button id="settings-close" aria-label="Close settings">&times;</button>
+    </header>
+    <div id="settings-body">
+      <section class="settings-section">
+        <h3>Appearance</h3>
+        <p class="hint">How the dashboard looks on this device.</p>
+        <div class="settings-row">
+          <span class="label">Theme</span>
+          <div class="settings-pills" data-setting="theme">
+            <button class="pill" data-value="dark">Dark</button>
+            <button class="pill" data-value="light">Light</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <span class="label">Font</span>
+          <div class="settings-pills" data-setting="font">
+            <button class="pill" data-value="default">Default</button>
+            <button class="pill" data-value="accessible">Accessible</button>
+            <button class="pill" data-value="mono">Monospace</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <span class="label">Text size</span>
+          <div class="settings-pills" data-setting="textSize">
+            <button class="pill" data-value="sm">Small</button>
+            <button class="pill" data-value="md">Default</button>
+            <button class="pill" data-value="lg">Large</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>Accessibility</h3>
+        <p class="hint">Applies everywhere in the dashboard, immediately.</p>
+        <div class="settings-row">
+          <div>
+            <div class="label">Reduce motion</div>
+            <div class="sub">Turns off transitions and the view-switch fade.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-reduce-motion" />
+            <span class="track"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="label">High contrast</div>
+            <div class="sub">Stronger borders and lighter secondary text.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-high-contrast" />
+            <span class="track"></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>Account</h3>
+        <p class="hint" id="account-hint">A local profile for this browser - not a real login, nothing is sent anywhere.</p>
+
+        <div id="account-signed-in" class="settings-account" style="display:none;">
+          <div class="settings-avatar" id="account-avatar">?</div>
+          <div class="settings-account-actions">
+            <strong id="account-name-display"></strong>
+            <input type="file" id="account-photo-input" accept="image/*" hidden />
+            <div style="display:flex; gap:6px;">
+              <button class="settings-btn" id="account-change-photo">Change photo</button>
+              <button class="settings-btn" id="account-sign-out">Sign out</button>
+            </div>
+          </div>
+        </div>
+
+        <form id="account-signed-out" class="settings-signin">
+          <input type="text" id="account-name-input" placeholder="Display name" required />
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="settings-avatar" id="account-avatar-preview">?</div>
+            <input type="file" id="account-photo-input-new" accept="image/*" hidden />
+            <button type="button" class="settings-btn" id="account-choose-photo">Choose photo (optional)</button>
+          </div>
+          <button type="submit" class="settings-btn primary" style="align-self:flex-start;">Sign in</button>
+        </form>
+        <p class="settings-local-note">Stored in this browser's local storage only. Clearing site data removes it.</p>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -1194,6 +1448,171 @@ connectWebSocket();
 if (location.hash === "#kanban") switchTab("kanban");
 else if (location.hash === "#roles") switchTab("roles");
 else switchTab("feed");
+
+// ---- Settings: appearance, accessibility, and a local-only account
+// profile. All of it is a per-viewer preference stored in this
+// browser (see the guarded localStorage reads/writes throughout) -
+// the account piece in particular is a display name and avatar shown
+// in this UI, not real authentication; there is no server-side user
+// system to authenticate against, and the settings panel says so.
+const root = document.documentElement;
+
+function applyTheme(value) {
+  root.dataset.theme = value === "light" ? "light" : "dark";
+  try { localStorage.setItem("wjfyp.settings.theme", value); } catch {}
+}
+function applyFont(value) {
+  if (value === "mono" || value === "accessible") root.dataset.font = value;
+  else delete root.dataset.font;
+  try { localStorage.setItem("wjfyp.settings.font", value); } catch {}
+}
+function applyTextSize(value) {
+  if (value === "sm" || value === "lg") root.dataset.textsize = value;
+  else delete root.dataset.textsize;
+  try { localStorage.setItem("wjfyp.settings.textSize", value); } catch {}
+}
+function applyReduceMotion(on) {
+  if (on) root.dataset.reduceMotion = "1"; else delete root.dataset.reduceMotion;
+  try { localStorage.setItem("wjfyp.settings.reduceMotion", on ? "1" : "0"); } catch {}
+}
+function applyHighContrast(on) {
+  if (on) root.dataset.contrast = "high"; else delete root.dataset.contrast;
+  try { localStorage.setItem("wjfyp.settings.highContrast", on ? "1" : "0"); } catch {}
+}
+
+document.querySelectorAll(".settings-pills").forEach(group => {
+  group.addEventListener("click", e => {
+    const btn = e.target.closest(".pill");
+    if (!btn) return;
+    group.querySelectorAll(".pill").forEach(p => p.classList.toggle("active", p === btn));
+    const value = btn.dataset.value;
+    const setting = group.dataset.setting;
+    if (setting === "theme") applyTheme(value);
+    else if (setting === "font") applyFont(value);
+    else if (setting === "textSize") applyTextSize(value);
+  });
+});
+
+const reduceMotionInput = document.getElementById("setting-reduce-motion");
+const highContrastInput = document.getElementById("setting-high-contrast");
+reduceMotionInput.addEventListener("change", e => applyReduceMotion(e.target.checked));
+highContrastInput.addEventListener("change", e => applyHighContrast(e.target.checked));
+
+function syncSettingsUI() {
+  const theme = root.dataset.theme || "dark";
+  const font = root.dataset.font || "default";
+  const textSize = root.dataset.textsize || "md";
+  document.querySelectorAll('.settings-pills[data-setting="theme"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === theme));
+  document.querySelectorAll('.settings-pills[data-setting="font"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === font));
+  document.querySelectorAll('.settings-pills[data-setting="textSize"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === textSize));
+  reduceMotionInput.checked = root.dataset.reduceMotion === "1";
+  highContrastInput.checked = root.dataset.contrast === "high";
+}
+
+// Local account profile: { name, avatar } as a data: URL, or null
+// when signed out. A profile photo is downscaled to a small square
+// before it's stored - localStorage has a small per-origin quota and
+// a phone photo straight out of a file picker would blow through it.
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem("wjfyp.profile");
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveProfile(profile) {
+  try { localStorage.setItem("wjfyp.profile", JSON.stringify(profile)); } catch {}
+}
+function clearProfile() {
+  try { localStorage.removeItem("wjfyp.profile"); } catch {}
+}
+function initialsFor(name) {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map(w => w[0].toUpperCase()).join("") || "?";
+}
+function resizeImageFile(file, onReady) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const scale = Math.max(size / img.width, size / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      canvas.getContext("2d").drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      onReady(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+let pendingAvatar = null;
+const accountSignedIn = document.getElementById("account-signed-in");
+const accountSignedOut = document.getElementById("account-signed-out");
+
+function syncAccountUI() {
+  const profile = loadProfile();
+  if (profile) {
+    accountSignedIn.style.display = "flex";
+    accountSignedOut.style.display = "none";
+    document.getElementById("account-name-display").textContent = profile.name;
+    const avatarEl = document.getElementById("account-avatar");
+    avatarEl.innerHTML = profile.avatar ? `<img src="${profile.avatar}" alt="" />` : "";
+    if (!profile.avatar) avatarEl.textContent = initialsFor(profile.name);
+  } else {
+    accountSignedIn.style.display = "none";
+    accountSignedOut.style.display = "flex";
+    document.getElementById("account-name-input").value = "";
+    const preview = document.getElementById("account-avatar-preview");
+    preview.innerHTML = "";
+    preview.textContent = "?";
+    pendingAvatar = null;
+  }
+}
+
+document.getElementById("account-choose-photo").onclick = () => document.getElementById("account-photo-input-new").click();
+document.getElementById("account-photo-input-new").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  resizeImageFile(file, dataUrl => {
+    pendingAvatar = dataUrl;
+    document.getElementById("account-avatar-preview").innerHTML = `<img src="${dataUrl}" alt="" />`;
+  });
+});
+accountSignedOut.addEventListener("submit", e => {
+  e.preventDefault();
+  const name = document.getElementById("account-name-input").value.trim();
+  if (!name) return;
+  saveProfile({ name, avatar: pendingAvatar });
+  syncAccountUI();
+});
+
+document.getElementById("account-change-photo").onclick = () => document.getElementById("account-photo-input").click();
+document.getElementById("account-photo-input").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  resizeImageFile(file, dataUrl => {
+    const profile = loadProfile() || { name: "You", avatar: null };
+    profile.avatar = dataUrl;
+    saveProfile(profile);
+    syncAccountUI();
+  });
+});
+document.getElementById("account-sign-out").onclick = () => {
+  clearProfile();
+  syncAccountUI();
+};
+
+const settingsBackdrop = document.getElementById("settings-backdrop");
+document.getElementById("open-settings").onclick = () => {
+  syncSettingsUI();
+  syncAccountUI();
+  settingsBackdrop.classList.add("open");
+};
+document.getElementById("settings-close").onclick = () => settingsBackdrop.classList.remove("open");
+settingsBackdrop.onclick = e => { if (e.target === settingsBackdrop) settingsBackdrop.classList.remove("open"); };
 </script>
 </body>
 </html>
