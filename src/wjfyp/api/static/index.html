@@ -36,23 +36,32 @@
   :root {
     color-scheme: dark;
 
-    /* Dark olive-black scale, lightest to darkest: wash (page, behind
-       the shell) -> surface (shell) -> surface-raised (cards) is the
+    /* Neutral dark scale, lightest to darkest: wash (page, behind the
+       shell) -> surface (shell) -> surface-raised (cards) is the
        "elevation gets lighter" direction; surface-sunken breaks that
-       trend on purpose for exactly two elements (the sidebar and the
-       "Needs you" card) so they read as the darkest, most assertive
-       panels on the page, mirroring the role they played in the
-       original light theme. */
-    --wash: #171a12;
-    --surface: #1e2217;
-    --surface-raised: #262b1d;
-    --surface-sunken: #0a0b07;
-    --line: #333a28;
-    --line-strong: #454e37;
+       trend on purpose for the "Needs you" card, so it reads as the
+       darkest, most assertive panel on the page. Kept close to true
+       gray rather than the olive/khaki tint an earlier pass had. */
+    --wash: #16171a;
+    --surface: #1d1f23;
+    --surface-raised: #262930;
+    --surface-sunken: #0a0b0d;
+    --line: #33363d;
+    --line-strong: #454952;
 
-    --text: #eef1e7;
-    --text-soft: #b9c2af;
-    --muted: #8b9784;
+    --text: #eef0f2;
+    --text-soft: #b8bcc4;
+    --muted: #8d929c;
+
+    /* The sidebar's own background - always the darkest, most
+       assertive panel in a dark-family theme (same role as
+       --surface-sunken there, which is why it defaults to it), but
+       NOT in a light-family theme: a light theme's sidebar should
+       actually be light, unlike the "Needs you" card, which stays
+       dark in every theme on purpose. Light/Rosé Pine/Catppuccin
+       Latte override this to --surface-raised; nothing else needs to,
+       since every other theme is dark-family already. */
+    --sidebar-bg: var(--surface-sunken);
 
     /* Was a lime/chartreuse (#d8f24c) - read as "that green-ish
        yellow" once tier-3 stopped being yellow too, so the native
@@ -66,16 +75,16 @@
        a dark surface (active pill, primary buttons, the filled state
        of a capsule) - paired with --emphasis-text for the dark label
        that sits on top of it. */
-    --emphasis-fill: #eef1e7;
+    --emphasis-fill: #eef0f2;
     --emphasis-text: #14170f;
 
-    /* Text for the sidebar and "Needs you" card specifically: those
-       two sit on --surface-sunken, which stays dark in BOTH themes
-       (see the light-theme override block below), so their text has
-       to stay light in both themes too - unlike --text itself, which
-       flips with the theme because most surfaces do. */
-    --sunken-text: #eef1e7;
-    --sunken-text-soft: #b9c2af;
+    /* Text for the "Needs you" card specifically: it sits on
+       --surface-sunken, which stays dark in every theme (unlike the
+       sidebar now - see --sidebar-bg above), so its text has to stay
+       light in every theme too, unlike --text itself, which flips
+       with the theme because most surfaces do. */
+    --sunken-text: #eef0f2;
+    --sunken-text-soft: #b8bcc4;
 
     /* Tier colors: on a dark surface the identity hue itself already
        clears 4.5:1 as text (verified with a real luminance calc, not
@@ -149,8 +158,9 @@
     --muted: #5b665c;
     --emphasis-fill: #0e120d;
     --emphasis-text: #ffffff;
-    --sunken-text: #eef1e7;
-    --sunken-text-soft: #b9c2af;
+    --sunken-text: #eef0f2;
+    --sunken-text-soft: #b8bcc4;
+    --sidebar-bg: var(--surface-raised);
     --tier-3: #d32d24;
     --tier-2: #6e3fa6;
     --tier-1: #096b7e;
@@ -312,6 +322,7 @@
     --emphasis-text: #faf4ed;
     --sunken-text: #faf4ed;
     --sunken-text-soft: #f2e9e1;
+    --sidebar-bg: var(--surface-raised);
     --tier-3: #8b560e;
     --tier-3-dot: #ea9d34;
     --tier-2: #715a8c;
@@ -342,6 +353,7 @@
     --emphasis-text: #eff1f5;
     --sunken-text: #eff1f5;
     --sunken-text-soft: #dce0e8;
+    --sidebar-bg: var(--surface-raised);
     --tier-3: #855511;
     --tier-3-dot: #df8e1d;
     --tier-2: #ad1a86;
@@ -482,7 +494,8 @@
 
   /* ---------- Sidebar ---------- */
   .sidebar {
-    background: var(--surface-sunken);
+    background: var(--sidebar-bg);
+    border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
@@ -499,13 +512,13 @@
   .sidebar-nav { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
   .nav-item {
     width: 52px; height: 52px; border-radius: var(--radius-sm);
-    background: none; border: none; color: #9aa89e; cursor: pointer;
+    background: none; border: none; color: var(--muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: background .15s ease, color .15s ease;
   }
-  .nav-item:hover { color: #f3f6f1; background: rgba(255,255,255,.06); }
+  .nav-item:hover { color: var(--text); background: var(--overlay-a); }
   .nav-item.active { background: var(--accent); color: var(--accent-ink); }
-  .nav-divider { width: 28px; height: 1px; background: rgba(255,255,255,.1); margin: 2px auto 0; flex: none; }
+  .nav-divider { width: 28px; height: 1px; background: var(--line); margin: 2px auto 0; flex: none; }
   .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fae6c; }
   .live-dot.down { background: #c1552f; }
