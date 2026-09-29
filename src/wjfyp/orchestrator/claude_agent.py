@@ -288,6 +288,39 @@ def _has_network_failure(text: str) -> bool:
     return any(sig in text for sig in _NETWORK_FAILURE_SIGNATURES)
 
 
+# Same principle as the network-failure backstop above, found the same
+# way (a real live run burning its whole retry/escalation budget on a
+# permanent, not transient, failure): this sandbox has no network access
+# and can never install a missing package, so a missing-module error is
+# just as unfixable-by-retrying as a DNS failure is. Found running
+# sde-write-a-unit-test-for-append_file-function for real - the target
+# repo's own pre-existing test file (tests/unit/test_agent_skill.py)
+# imports docx/aider/e2b, none installable here, and the model correctly
+# diagnosed this itself in its own narrative ("this is an environment
+# problem") but had no way to stop retrying against it, exhausting the
+# shared retry budget and every escalation on both team configurations
+# before ever reaching a real result. Deliberately generic (any missing
+# module, not docx/aider/e2b specifically) rather than task-specific,
+# since the actual cause - no network, no package installs - applies to
+# any future task that ports in a file with its own unrelated imports.
+_MISSING_MODULE_SIGNATURES = (
+    "ModuleNotFoundError: No module named",
+    "ImportError: No module named",
+)
+
+_MISSING_MODULE_NOTE = (
+    "\n\n[This sandbox has no network access and can't install new packages, so a missing "
+    "module is permanent, not something retrying will fix. If this came from importing a "
+    "file you didn't write yourself (e.g. an existing file with its own unrelated "
+    "dependencies), that file can't be run directly here - verify your own work by reasoning "
+    "about it instead of insisting on a real test run, and say so plainly in your narrative.]"
+)
+
+
+def _has_missing_module(text: str) -> bool:
+    return any(sig in text for sig in _MISSING_MODULE_SIGNATURES)
+
+
 def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> tuple[str, bool]:
     """Runs one sandbox tool call for real. Returns (result_text, is_error).
 
@@ -314,6 +347,8 @@ def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> 
             truncated = _truncate(text)
             if _has_network_failure(text):
                 truncated += _NETWORK_FAILURE_NOTE
+            elif _has_missing_module(text):
+                truncated += _MISSING_MODULE_NOTE
             return truncated, False
         if name == "run_tests":
             result = sandbox.run_tests()

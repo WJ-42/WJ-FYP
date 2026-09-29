@@ -393,6 +393,35 @@ class ClaudeAgentInProgressTest(unittest.TestCase):
         tool_result = next(b for b in second_call_content if b.get("tool_use_id") == "toolu_0")
         self.assertNotIn("no network access", tool_result["content"])
 
+    def test_missing_module_failure_gets_an_explanatory_note_appended(self) -> None:
+        """Regression check for a real live run (sde-write-a-unit-test)
+        that burned its entire shared retry budget and every escalation
+        on both team configurations, repeatedly trying to run pytest
+        against a file with unrelated missing imports (docx/aider/e2b) -
+        the model correctly diagnosed this as an environment problem in
+        its own narrative but kept retrying anyway with no way to stop.
+        """
+        sandbox = FakeSandboxController(
+            command_results=[
+                CommandResult(
+                    exit_code=1, stdout="", stderr="ModuleNotFoundError: No module named 'docx'"
+                )
+            ]
+        )
+        client = _ScriptedFakeClient(
+            [
+                _tool_use_response(("run_command", {"cmd": "pytest tests/unit/test_agent_skill.py"})),
+                _tool_use_response(("declare_outcome", _declare_args())),
+            ]
+        )
+        agent = ClaudeAgent(_engineering_role(), "engineering-1", client=client)
+
+        agent.invoke(_in_progress_context(sandbox))
+
+        second_call_content = client.captured_calls[1]["messages"][-1]["content"]
+        tool_result = next(b for b in second_call_content if b.get("tool_use_id") == "toolu_0")
+        self.assertIn("can't install new packages", tool_result["content"])
+
     def test_text_only_response_gets_nudged_to_act_or_finish(self) -> None:
         sandbox = FakeSandboxController()
         client = _ScriptedFakeClient(
