@@ -43,6 +43,19 @@ class Ticket(BaseModel):
     retry_count: int = 0
     retry_cap: int = 3
 
+    # One level up from retry_count: how many times this ticket has had
+    # its retry budget refreshed via a CTO override at escalated. Never
+    # reset (unlike retry_count) - it's a lifetime count for this ticket,
+    # not something a later state should wipe. Without this, cto_override
+    # granting a fresh retry_count every time has no limit on how many
+    # times that can happen in total, the same "a reset with no bound on
+    # repetitions" shape retry_count itself had before FYP-27, just one
+    # level up the escalated <-> in_progress cycle instead of the
+    # in_progress <-> awaiting_test/review one. See
+    # fsm.ESCALATION_COUNTED_TRIGGERS and loop.py's _apply_escalation_budget.
+    escalation_count: int = 0
+    escalation_cap: int = 3
+
     # Intervention-mode human decision handoff (see cs3ip-dashboard-design
     # memory and orchestrator/loop.py's step()). pending_trigger is the
     # trigger an agent proposed at a requires_approval transition, set

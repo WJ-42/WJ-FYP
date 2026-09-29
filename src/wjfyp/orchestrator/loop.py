@@ -10,6 +10,8 @@ from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent,
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
 from wjfyp.orchestrator.fsm import (
+    ESCALATION_COUNTED_TRIGGERS,
+    ESCALATION_OVERFLOW_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
     RETRY_OVERFLOW_TRIGGER,
     active_role,
@@ -43,26 +45,62 @@ HiddenTestLookup = Callable[[Ticket], "HiddenTestSpec | None"]
 _RETRY_RESETTING_STATES = {TicketStatus.ESCALATED}
 
 
-def _apply_retry_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]:
-    """If (ticket.status, trigger) is one of the shared retry-counted
-    edges (fsm.RETRY_COUNTED_TRIGGERS), increments Ticket.retry_count and,
-    once it exceeds retry_cap, overrides the trigger to
-    RETRY_OVERFLOW_TRIGGER so the ticket escalates instead of looping
-    back to engineering again. Otherwise returns the ticket and trigger
-    unchanged.
+def _apply_budget(
+    ticket: Ticket,
+    trigger: str,
+    counted_triggers: set[tuple[TicketStatus, str]],
+    count_field: str,
+    cap_field: str,
+    overflow_trigger: str,
+) -> tuple[Ticket, str]:
+    """Shared shape behind both budgets below: if (ticket.status, trigger)
+    is one of `counted_triggers`, increments the named counter field and,
+    once it exceeds the named cap field, overrides the trigger to
+    `overflow_trigger` instead of letting the original one fire.
+    Otherwise returns the ticket and trigger unchanged.
 
     Call this immediately before whichever _apply_transition() call will
     actually fire the trigger - not any earlier - so a trigger that gets
     paused for human approval (and possibly overridden to something else
-    entirely by that human's decision) is never counted against the
-    budget before it's known to actually apply. See FYP-27.
+    entirely by that human's decision) is never counted against a budget
+    before it's known to actually apply. See FYP-27.
     """
-    if (ticket.status, trigger) not in RETRY_COUNTED_TRIGGERS:
+    if (ticket.status, trigger) not in counted_triggers:
         return ticket, trigger
-    retry_count = ticket.retry_count + 1
-    if retry_count > ticket.retry_cap:
-        trigger = RETRY_OVERFLOW_TRIGGER
-    return ticket.model_copy(update={"retry_count": retry_count}), trigger
+    count = getattr(ticket, count_field) + 1
+    if count > getattr(ticket, cap_field):
+        trigger = overflow_trigger
+    return ticket.model_copy(update={count_field: count}), trigger
+
+
+def _apply_retry_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]:
+    """The awaiting_test/review loop-back budget (Ticket.retry_count /
+    retry_cap, see its own docstring and fsm.RETRY_COUNTED_TRIGGERS) -
+    once exceeded, escalates instead of looping back to engineering
+    again.
+    """
+    return _apply_budget(
+        ticket, trigger, RETRY_COUNTED_TRIGGERS, "retry_count", "retry_cap", RETRY_OVERFLOW_TRIGGER
+    )
+
+
+def _apply_escalation_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]:
+    """One level up from _apply_retry_budget: how many times a ticket's
+    retry budget can be refreshed via a CTO override at escalated
+    (Ticket.escalation_count / escalation_cap, see its own docstring and
+    fsm.ESCALATION_COUNTED_TRIGGERS) - once exceeded, halts instead of
+    granting yet another fresh retry budget. Found auditing the rest of
+    the transition graph for the same "reset with no bound on repeated
+    resets" shape after fixing the review-rejection loop in FYP-27.
+    """
+    return _apply_budget(
+        ticket,
+        trigger,
+        ESCALATION_COUNTED_TRIGGERS,
+        "escalation_count",
+        "escalation_cap",
+        ESCALATION_OVERFLOW_TRIGGER,
+    )
 
 
 @dataclass
@@ -257,6 +295,7 @@ def step(
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
     ticket, trigger = _apply_retry_budget(ticket, trigger)
+    ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     return StepResult(ticket=ticket, advanced=True, sandbox=sandbox)
 
@@ -336,11 +375,12 @@ def resume(
     are actually given - a plain approve/reject doesn't need a message
     of its own beyond the agent turns already logged.
 
-    `trigger` still goes through the same shared retry budget as an
-    autonomous-mode trigger would (see _apply_retry_budget) - a human
-    repeatedly choosing "request changes" in intervention mode can drive
-    the review-rejection loop exactly as unboundedly as an autonomous
-    CTO agent can, so it draws from the same cap (FYP-27).
+    `trigger` still goes through the same shared retry and escalation
+    budgets an autonomous-mode trigger would (see _apply_retry_budget and
+    _apply_escalation_budget) - a human repeatedly choosing "request
+    changes" or "override" in intervention mode can drive either loop
+    exactly as unboundedly as an autonomous CTO agent can, so both draw
+    from the same caps regardless of who's deciding (FYP-27).
     """
     if notes:
         event_log.append_message(
@@ -360,6 +400,7 @@ def resume(
             )
         )
     ticket, trigger = _apply_retry_budget(ticket, trigger)
+    ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     return run(
         ticket, channel, event_log, agents, sandbox_factory, settings,

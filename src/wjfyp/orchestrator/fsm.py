@@ -65,6 +65,18 @@ TRANSITIONS: list[Transition] = [
     Transition(TicketStatus.REVIEW, TicketStatus.ESCALATED, "retry_cap_exceeded"),
     Transition(TicketStatus.ESCALATED, TicketStatus.IN_PROGRESS, "cto_override", requires_approval=True),
     Transition(TicketStatus.ESCALATED, TicketStatus.HALTED, "cto_cannot_resolve", requires_approval=True),
+    # Added same session as the review-rejection fix above, after auditing
+    # the rest of the graph for the same shape of gap: cto_override always
+    # grants a fresh retry_count budget with no limit on how many times
+    # that can happen for one ticket. The CTO's own escalated-state
+    # instructions give it no guidance on how many overrides is too many,
+    # and autonomous mode never pauses for a human to notice either - a
+    # persistent CTO could genuinely keep overriding forever, bounded only
+    # by loop.run()'s generic max_steps safety valve rather than any real
+    # per-ticket policy. Not gated by requires_approval, same reasoning as
+    # the other overflow triggers: this is the orchestrator enforcing a
+    # hard limit, not a choice for a human or the CTO agent to make.
+    Transition(TicketStatus.ESCALATED, TicketStatus.HALTED, "escalation_cap_exceeded"),
 ]
 
 _TRANSITION_INDEX: dict[tuple[TicketStatus, str], Transition] = {
@@ -89,6 +101,28 @@ RETRY_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
     (TicketStatus.AWAITING_TEST, "tests_failed"),
     (TicketStatus.REVIEW, "changes_requested"),
 }
+
+# The orchestrator-only trigger cto_override escalates to once
+# Ticket.escalation_cap is exceeded - a second, one-level-up instance of
+# the same "reaching this state grants a fresh budget with no limit on
+# how many times that can happen" shape RETRY_OVERFLOW_TRIGGER fixes for
+# retry_count. Found by auditing the rest of the transition graph for
+# this shape after fixing the review-rejection loop, same session.
+ESCALATION_OVERFLOW_TRIGGER = "escalation_cap_exceeded"
+
+# The one escalation-counted edge: successfully overriding an escalation
+# grants a fresh retry_count budget (Ticket.escalation_count /
+# Ticket.escalation_cap, default 3). Once escalation_count exceeds
+# escalation_cap, the orchestrator fires ESCALATION_OVERFLOW_TRIGGER
+# instead of letting the override through, forcing the ticket to halted
+# regardless of what the CTO proposed.
+ESCALATION_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
+    (TicketStatus.ESCALATED, "cto_override"),
+}
+
+# Every trigger the orchestrator decides for itself once some budget runs
+# out, never a real choice offered to an agent (see agent_facing_triggers).
+ORCHESTRATOR_ONLY_TRIGGERS: set[str] = {RETRY_OVERFLOW_TRIGGER, ESCALATION_OVERFLOW_TRIGGER}
 
 
 def next_state(current: TicketStatus, trigger: str) -> TicketStatus:
@@ -117,17 +151,18 @@ def valid_triggers(status: TicketStatus) -> list[str]:
 
 
 def agent_facing_triggers(status: TicketStatus) -> list[str]:
-    """Like valid_triggers(), minus RETRY_OVERFLOW_TRIGGER. Use this (not
-    valid_triggers directly) when building an agent's forced-tool-call
-    schema (see claude_agent.py's ClaudeAgent.invoke) - the overflow
-    trigger is always the orchestrator deciding a shared budget ran out,
+    """Like valid_triggers(), minus ORCHESTRATOR_ONLY_TRIGGERS. Use this
+    (not valid_triggers directly) when building an agent's forced-tool-
+    call schema (see claude_agent.py's ClaudeAgent.invoke) - these
+    triggers are always the orchestrator deciding some budget ran out,
     never a real choice the CTO or engineering agent should be offered.
     Before FYP-27 this distinction never mattered in practice, since the
-    only state with the overflow trigger (awaiting_test) never invokes an
-    agent at all; adding it to review as well (a state the CTO genuinely
-    is invoked at) made the filter load-bearing.
+    only state with an overflow trigger (awaiting_test) never invokes an
+    agent at all; adding one to review (a state the CTO genuinely is
+    invoked at), and then another to escalated, made the filter load-
+    bearing.
     """
-    return [t for t in valid_triggers(status) if t != RETRY_OVERFLOW_TRIGGER]
+    return [t for t in valid_triggers(status) if t not in ORCHESTRATOR_ONLY_TRIGGERS]
 
 
 def requires_human_approval(current: TicketStatus, trigger: str) -> bool:

@@ -309,6 +309,51 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertEqual(result.ticket.status, TicketStatus.HALTED)
         self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
 
+    def test_escalation_overrides_are_also_capped_in_total(self) -> None:
+        """Found auditing the rest of the transition graph for the same
+        shape of gap right after fixing the review-rejection loop above:
+        cto_override always grants a fresh retry_count budget with no
+        limit on how many times that can happen for one ticket. A CTO
+        that keeps genuinely believing "one more shot with a different
+        approach" would work could cycle escalate -> override forever,
+        bounded only by run()'s generic max_steps rather than any real
+        per-ticket policy. Without escalation_cap, this exact scripted
+        sequence would send the ticket back to in_progress a second time
+        after the second override instead of halting, exhausting
+        engineering's script and raising IndexError on an unscripted 5th
+        attempt - the same failure shape as the shared-budget test above.
+        """
+        ticket = Ticket(
+            id="TCK-1", title="Test ticket", description="...", retry_cap=1, escalation_cap=1
+        )
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "cto_override", "cto_override"],
+            product=["spec_ready"],
+            engineering=[
+                "assigned",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+            ],
+        )
+        # Two escalation cycles, each needing 2 failed attempts to exceed
+        # retry_cap=1.
+        sandbox_factory = _sandbox_factory_with_results(
+            [_test_result(passed=False) for _ in range(4)]
+        )
+
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
+
+        self.assertTrue(not result.advanced)
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        # 2 overrides total: the first was within escalation_cap=1 and
+        # granted a fresh retry budget; the second exceeded it and was
+        # overridden to escalation_cap_exceeded instead of being honoured.
+        self.assertEqual(result.ticket.escalation_count, 2)
+
     def test_intervention_mode_pauses_and_resume_applies_human_decision(self) -> None:
         ticket = _make_ticket()
         channel = _make_channel(ticket)

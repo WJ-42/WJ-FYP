@@ -44,10 +44,11 @@ _CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
 # dashboard. The FSM itself only ever looks at `trigger` (returned
 # separately in AgentResponse), so a wrong or missing entry here can't
 # affect orchestration, only how the message reads in the feed. Triggers
-# not listed here (tests_passed, tests_failed, retry_cap_exceeded) are
-# always decided deterministically by the orchestrator itself, never by
-# an agent turn (see fsm.py's agent_facing_triggers and loop.py's
-# _apply_retry_budget/_step_awaiting_test).
+# not listed here (tests_passed, tests_failed, retry_cap_exceeded,
+# escalation_cap_exceeded) are always decided deterministically by the
+# orchestrator itself, never by an agent turn (see fsm.py's
+# agent_facing_triggers and loop.py's _apply_retry_budget/
+# _apply_escalation_budget/_step_awaiting_test).
 _MESSAGE_TYPE_FOR_TRIGGER: dict[str, MessageType] = {
     "decomposed": MessageType.HANDOFF,
     "spec_ready": MessageType.HANDOFF,
@@ -416,7 +417,7 @@ class ClaudeAgent:
     a forced tool call whose schema enumerates exactly the triggers
     agent_facing_triggers() says are legal from the ticket's current
     status for an agent to choose (this excludes the orchestrator-only
-    retry-cap-overflow override - see fsm.agent_facing_triggers, FYP-27).
+    budget-overflow triggers - see fsm.agent_facing_triggers, FYP-27).
     The model cannot free-text a trigger, so there is no
     retry-on-malformed-output path to write - `strict: true` on the
     tool definition guarantees the arguments validate exactly against

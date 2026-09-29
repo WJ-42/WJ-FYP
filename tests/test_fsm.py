@@ -10,6 +10,8 @@ import unittest
 
 from wjfyp.models.ticket import TicketStatus
 from wjfyp.orchestrator.fsm import (
+    ESCALATION_COUNTED_TRIGGERS,
+    ESCALATION_OVERFLOW_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
     RETRY_OVERFLOW_TRIGGER,
     agent_facing_triggers,
@@ -54,6 +56,39 @@ class RetryOverflowFsmTest(unittest.TestCase):
         self.assertNotIn(RETRY_OVERFLOW_TRIGGER, agent_facing_triggers(TicketStatus.REVIEW))
         self.assertEqual(
             set(agent_facing_triggers(TicketStatus.REVIEW)), {"approved", "changes_requested"}
+        )
+
+
+class EscalationOverflowFsmTest(unittest.TestCase):
+    """Same shape as RetryOverflowFsmTest, one level up: cto_override
+    granting a fresh retry budget also needs a cap on how many times that
+    can happen in total, found auditing the rest of the graph for the
+    same "reset with no bound on repeated resets" pattern after fixing
+    the review-rejection loop.
+    """
+
+    def test_escalated_has_a_real_transition_to_halted_on_overflow(self) -> None:
+        self.assertEqual(
+            next_state(TicketStatus.ESCALATED, ESCALATION_OVERFLOW_TRIGGER),
+            TicketStatus.HALTED,
+        )
+
+    def test_escalation_counted_triggers_cover_exactly_cto_override(self) -> None:
+        self.assertEqual(
+            ESCALATION_COUNTED_TRIGGERS, {(TicketStatus.ESCALATED, "cto_override")}
+        )
+
+    def test_agent_facing_triggers_hides_the_overflow_trigger_from_escalated(self) -> None:
+        """The CTO is invoked for real at escalated too - same reasoning
+        as review, this trigger must never appear in its tool schema.
+        """
+        self.assertIn(ESCALATION_OVERFLOW_TRIGGER, valid_triggers(TicketStatus.ESCALATED))
+        self.assertNotIn(
+            ESCALATION_OVERFLOW_TRIGGER, agent_facing_triggers(TicketStatus.ESCALATED)
+        )
+        self.assertEqual(
+            set(agent_facing_triggers(TicketStatus.ESCALATED)),
+            {"cto_override", "cto_cannot_resolve"},
         )
 
 
