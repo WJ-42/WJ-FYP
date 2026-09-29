@@ -3,236 +3,443 @@
 <head>
 <meta charset="utf-8" />
 <title>WJ-FYP Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root {
-    color-scheme: dark;
-    --bg: #14161a;
-    --panel: #1c1f26;
-    --panel-raised: #21242c;
-    --border: #2b2f38;
-    --text: #e6e8eb;
-    --muted: #8a8f98;
-    /* Slightly lighter than --muted, for small interactive text
-       (toggle buttons) that should read comfortably above WCAG AA's
-       4.5:1 rather than sit close to the line the way --muted itself
-       does on --panel (~5:1). */
-    --muted-strong: #a5abb5;
-    --accent: #5b8def;
-    /* Darker than --accent specifically for solid fills carrying white
-       text (nav active tab, primary buttons) - white-on-#5b8def is only
-       3.2:1, failing WCAG AA's 4.5:1 for normal text; this pairing
-       clears it (~4.7:1). --accent itself stays unchanged for borders/
-       hover rings, where this contrast rule doesn't apply. */
-    --accent-strong: #4570cc;
+    color-scheme: light;
 
-    /* Role-tier palette: distinct, same-lightness hues so tier reads by
-       color AND position (CTO always highest) - never color alone. */
-    --tier-3: #e2a53a;   /* CTO - authority, warm amber */
-    --tier-2: #b083f0;   /* Product - strategy, violet */
-    --tier-1: #5ec2e0;   /* Engineering - build, cyan */
-    --tier-system: #4bd08a; /* deterministic system/sandbox output, not an agent */
+    /* Sage wash the whole app "shell" floats on, and the shell's own
+       light surface - two close, low-contrast neutrals so the shell
+       reads as a raised sheet without needing a shadow to prove it. */
+    --wash: #dce3d9;
+    --surface: #f3f6f1;
+    --surface-raised: #ffffff;
+    --line: #dfe6db;
+
+    --ink: #0e120d;
+    --ink-soft: #414b42;
+    --muted: #5b665c;
+
+    --accent: #d8f24c;
+    --accent-ink: #1f2a14;
+
+    /* Tier text colors: darkened from the tier's identity hue so role
+       names/labels clear 4.5:1 on --surface (~#f3f6f1). Verified with a
+       real luminance calc, not eyeballed - see contrast.py from the
+       session that built this. The identity hue itself (tier-N-dot)
+       stays untouched for dots/fills, which aren't text and carry no
+       contrast requirement. */
+    --tier-3: #8a5a0a;
+    --tier-3-dot: #e2a53a;
+    --tier-2: #6e3fa6;
+    --tier-2-dot: #b083f0;
+    --tier-1: #096b7e;
+    --tier-1-dot: #5ec2e0;
+    --tier-system: #1e7a4b;
+    --tier-system-dot: #4bd08a;
+
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-sm: 12px;
+    --radius-pill: 999px;
 
     --space-1: 4px;
     --space-2: 8px;
     --space-3: 12px;
     --space-4: 20px;
     --space-5: 32px;
+
+    --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, "Inter", system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
+    font-family: var(--font-body);
+    background: var(--wash);
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, textarea { font-family: inherit; }
+  svg.icon { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ---------- App shell ---------- */
+  .app {
+    display: grid;
+    grid-template-columns: 88px 1fr 300px;
+    gap: var(--space-4);
     height: 100vh;
+    padding: var(--space-4);
+  }
+  @media (max-width: 1080px) {
+    .app { grid-template-columns: 88px 1fr; }
+    .rail { display: none; }
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    background: var(--ink);
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
-    line-height: 1.5;
-  }
-  header {
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--border);
-    display: flex;
     align-items: center;
+    padding: var(--space-3) 0;
     gap: var(--space-4);
   }
-  header h1 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-  nav { display: flex; gap: var(--space-1); }
-  nav button {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  .brand {
+    width: 44px; height: 44px; border-radius: var(--radius-sm);
+    background: var(--accent); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 16px;
   }
-  nav button:hover { color: var(--text); border-color: #3a3f4a; }
-  nav button.active { background: var(--accent-strong); color: white; border-color: var(--accent-strong); }
-  main { flex: 1; overflow: hidden; display: flex; }
-  .view { flex: 1; overflow: auto; padding: var(--space-4); display: none; opacity: 0; }
-  .view.active { display: block; opacity: 1; animation: fade-in .18s ease; }
+  .sidebar-nav { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
+  .nav-item {
+    width: 52px; height: 52px; border-radius: var(--radius-sm);
+    background: none; border: none; color: #9aa89e; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s ease, color .15s ease;
+  }
+  .nav-item:hover { color: #f3f6f1; background: rgba(255,255,255,.06); }
+  .nav-item.active { background: var(--accent); color: var(--accent-ink); }
+  .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #6fe08a; box-shadow: 0 0 0 0 rgba(111,224,138,.6); animation: pulse 2s ease-in-out infinite; }
+  .live-dot.down { background: #e08a6f; animation: none; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(111,224,138,.5); }
+    50% { box-shadow: 0 0 0 5px rgba(111,224,138,0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+  /* ---------- Main column ---------- */
+  .main {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+  .view-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
+  .view-title {
+    font-family: var(--font-display); font-weight: 700; font-size: 34px; line-height: 1.15;
+    margin: 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .view-title .chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: var(--radius-sm);
+    background: var(--surface-raised); border: 1px solid var(--line); color: var(--ink);
+  }
+  .view-sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+  /* KPI row - persists across tabs, since ticket/message counts and the
+     "needs you" state matter regardless of which view is open. */
+  .kpi-row { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: var(--space-3); }
+  .kpi-card {
+    background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  }
+  .kpi-card.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .kpi-card.dark { background: var(--ink); border-color: var(--ink); color: #eef2ea; }
+  .kpi-head { display: flex; align-items: center; justify-content: space-between; }
+  .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: rgba(14,18,13,.06); display: flex; align-items: center; justify-content: center; }
+  .kpi-card.accent .kpi-icon, .kpi-card.dark .kpi-icon { background: rgba(255,255,255,.14); }
+  .kpi-card.accent .kpi-icon svg, .kpi-card.dark .kpi-icon svg { stroke: currentColor; }
+  .kpi-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill);
+    background: rgba(14,18,13,.08);
+  }
+  .kpi-card.dark .kpi-badge { background: rgba(255,255,255,.14); }
+  .kpi-number { font-family: var(--font-display); font-weight: 700; font-size: 40px; line-height: 1; }
+  .kpi-number .unit { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--muted); margin-left: 6px; }
+  .kpi-card.accent .kpi-number .unit, .kpi-card.dark .kpi-number .unit { color: inherit; opacity: .7; }
+  .capsule-row { display: flex; gap: 4px; align-items: center; }
+  .capsule { width: 14px; height: 26px; border-radius: var(--radius-pill); background: var(--ink); flex: none; }
+  .capsule.off { background: none; border: 1.5px dashed rgba(14,18,13,.25); }
+  .kpi-card.accent .capsule { background: var(--accent-ink); }
+  .capsule-more { font-size: 11px; color: var(--muted); margin-left: 2px; }
+  .tier-bar { display: flex; height: 8px; border-radius: var(--radius-pill); overflow: hidden; background: rgba(14,18,13,.08); }
+  .tier-bar span { height: 100%; }
+  .kpi-attention-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .kpi-mini-btn {
+    background: var(--accent); color: var(--accent-ink); border: none; border-radius: var(--radius-pill);
+    padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .kpi-mini-btn:hover { filter: brightness(1.05); }
+  .kpi-caught-up { font-size: 13px; color: #b9c4b6; }
+
+  /* Filter pills */
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    background: var(--surface-raised); border: 1px solid var(--line); color: var(--ink-soft);
+    padding: 7px 15px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  .pill:hover { border-color: #c4cec0; }
+  .pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+  main.view-scroll { flex: 1; overflow: auto; min-height: 0; }
+  .view { display: none; }
+  .view.active { display: block; animation: fade-in .18s ease; }
   @keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 
-  /* Shared role-tier chip: a colored dot + label, used in the feed,
-     kanban cards, and the roles tab, so the same visual language marks
-     "who/what tier said or owns this" everywhere it appears. */
-  .tier-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; flex: none; }
-  .tier-3 { color: var(--tier-3); } .tier-3.tier-dot, .tier-dot.tier-3 { background: var(--tier-3); }
-  .tier-2 { color: var(--tier-2); } .tier-2.tier-dot, .tier-dot.tier-2 { background: var(--tier-2); }
-  .tier-1 { color: var(--tier-1); } .tier-1.tier-dot, .tier-dot.tier-1 { background: var(--tier-1); }
-  .tier-system { color: var(--tier-system); } .tier-system.tier-dot, .tier-dot.tier-system { background: var(--tier-system); }
+  /* Shared role-tier chip: colored dot + label, reused across feed,
+     kanban cards, roster and roles tab so tier reads by color and
+     position everywhere it shows up. */
+  .tier-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex: none; }
+  .tier-3 { color: var(--tier-3); } .tier-3.tier-dot, .tier-dot.tier-3 { background: var(--tier-3-dot); }
+  .tier-2 { color: var(--tier-2); } .tier-2.tier-dot, .tier-dot.tier-2 { background: var(--tier-2-dot); }
+  .tier-1 { color: var(--tier-1); } .tier-1.tier-dot, .tier-dot.tier-1 { background: var(--tier-1-dot); }
+  .tier-system { color: var(--tier-system); } .tier-system.tier-dot, .tier-dot.tier-system { background: var(--tier-system-dot); }
 
   /* Chat feed */
-  #feed { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+  #feed { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
   .msg {
-    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border);
-    border-radius: 8px; padding: 10px 14px;
-    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+    background: var(--surface-raised); border: 1px solid var(--line); border-left: 3px solid var(--line);
+    border-radius: var(--radius-md); padding: 12px 16px;
   }
-  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; letter-spacing: .02em; }
-  .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; }
-  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
-  .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
+  .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; font-family: var(--font-body); }
+  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: var(--ink); }
+  .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: var(--font-mono); font-size: 12.5px; }
 
-  /* "Show N more lines" - a generic fallback for any message whose text
-     turns out to be multi-line despite the plain-language prompting
-     (e.g. the deterministic sandbox test-result message, which always
-     is), so a wall of text never dumps into the feed unasked. */
   .text-toggle {
-    background: none; border: none; color: var(--muted-strong); cursor: pointer; font-size: 12px;
-    padding: 4px 0 0; display: block;
+    background: none; border: none; color: var(--tier-1); cursor: pointer; font-size: 12px;
+    padding: 4px 0 0; display: block; font-weight: 500;
   }
-  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--text); font-family: inherit; }
+  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--ink-soft); font-family: inherit; }
 
-  /* Logs toggle - reveals the raw tool_call/tool_result messages an
-     agent's turn produced (correlated via Message.parent_id), hidden
-     from the main feed by default per the "human chat, not code dump"
-     design: the narrative message is the human-readable summary, Logs
-     is where the tool-by-tool detail lives for anyone who wants it. */
   .logs-toggle {
-    background: none; border: 1px solid var(--border); color: var(--muted-strong); cursor: pointer;
-    font-size: 11px; padding: 3px 9px; border-radius: 10px; margin-top: 8px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink-soft); cursor: pointer;
+    font-size: 11px; padding: 4px 10px; border-radius: var(--radius-pill); margin-top: 8px; font-weight: 500;
   }
-  .logs-toggle:hover { color: var(--text); border-color: #3a3f4a; }
-  .logs-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-  .logs-panel[hidden] { display: none; } /* author display:flex above otherwise beats the UA [hidden] rule */
-  .logs-panel .msg { box-shadow: none; padding: 8px 10px; }
+  .logs-toggle:hover { border-color: #c4cec0; }
+  .logs-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .logs-panel[hidden] { display: none; }
+  .logs-panel .msg { padding: 8px 10px; }
 
-  /* Kanban - horizontal overflow scrolls at the .view level; the fix
-     here is making that scrollbar visible at all (a thin default
-     scrollbar is nearly invisible on a dark background, so overflowed
-     columns like ESCALATED/DONE read as "cut off", not "scroll for more"). */
-  #view-kanban { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-  #view-kanban::-webkit-scrollbar { height: 10px; }
-  #view-kanban::-webkit-scrollbar-track { background: transparent; }
-  #view-kanban::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
-  #view-kanban::-webkit-scrollbar-thumb:hover { background: #3a3f4a; }
-  #board { display: flex; gap: var(--space-3); height: 100%; align-items: flex-start; }
-  .column { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-width: 190px; flex: 1; padding: var(--space-2); }
-  .column h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 12px; }
+  /* Kanban */
+  #board { display: flex; gap: var(--space-3); height: 100%; align-items: flex-start; padding-bottom: 8px; }
+  .column { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 200px; flex: 1; padding: var(--space-2) var(--space-2) var(--space-3); }
+  .column h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 8px 12px; font-family: var(--font-mono); font-weight: 500; }
   .card {
-    background: var(--panel-raised); border: 1px solid var(--border); border-radius: 6px;
-    padding: 10px; margin-bottom: var(--space-2); cursor: pointer; font-size: 13px;
-    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 11px 12px; margin-bottom: var(--space-2); cursor: pointer; font-size: 13px;
+    transition: border-color .15s ease, transform .15s ease;
   }
-  .card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,.25); }
-  .card .id { color: var(--muted); font-size: 11px; }
-  .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--muted); margin-top: 6px; text-transform: capitalize; }
-  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 6px; }
-  .badge.waiting { background: #4a3a10; color: #f2b84b; }
-  .badge.decided { background: #123a2a; color: #4bd08a; }
+  .card:hover { border-color: var(--tier-1-dot); transform: translateY(-1px); }
+  .card .id { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--ink-soft); margin-top: 6px; text-transform: capitalize; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: var(--radius-pill); margin-top: 6px; font-weight: 600; }
+  .badge.waiting { background: var(--accent); color: var(--accent-ink); }
+  .badge.decided { background: #dcf3e4; color: var(--tier-system); }
 
   /* Thread modal */
   #modal-backdrop {
-    position: fixed; inset: 0; background: rgba(10,11,14,.6); backdrop-filter: blur(2px);
-    display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s ease;
+    position: fixed; inset: 0; background: rgba(14,18,13,.45); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s ease; z-index: 10;
   }
   #modal-backdrop.open { display: flex; opacity: 1; }
   #modal {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 640px; max-height: 80vh;
-    display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); width: 640px; max-height: 80vh;
+    display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(14,18,13,.18);
     transform: scale(.98) translateY(4px); transition: transform .15s ease;
   }
   #modal-backdrop.open #modal { transform: none; }
-  #modal header { border-bottom: 1px solid var(--border); }
-  #modal-title { font-size: 14px; font-weight: 600; }
-  #modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
-  #modal-thread { overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-  #modal-decision { border-top: 1px solid var(--border); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  #modal header { border-bottom: 1px solid var(--line); padding: 14px 18px !important; }
+  #modal-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+  #modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+  #modal-thread { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  #modal-decision { border-top: 1px solid var(--line); padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
   #modal-decision .prompt { font-size: 12px; color: var(--muted); }
   #modal-decision textarea {
-    width: 100%; min-height: 56px; resize: vertical; background: var(--bg); color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-family: inherit; font-size: 13px;
+    width: 100%; min-height: 56px; resize: vertical; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font-family: inherit; font-size: 13px;
   }
   #modal-decision .buttons { display: flex; gap: 8px; }
   #modal-decision button {
-    background: var(--accent-strong); color: white; border: none; border-radius: 6px;
-    padding: 6px 12px; cursor: pointer; font-size: 13px;
+    background: var(--ink); color: #fff; border: none; border-radius: var(--radius-pill);
+    padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
   }
-  #modal-decision button.secondary { background: none; border: 1px solid var(--border); color: var(--text); }
+  #modal-decision button.secondary { background: none; border: 1px solid var(--line); color: var(--ink); }
   #modal-decision .status { font-size: 12px; color: var(--muted); }
 
   /* Roles */
-  #roles { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+  #roles-panel { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); padding-bottom: 8px; }
   .role-row {
-    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px;
-    padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px;
-    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+    background: var(--surface-raised); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius-md);
+    padding: 13px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px;
   }
-  .role-row .name { font-weight: 600; }
-  .role-row .meta { color: var(--muted); font-size: 11px; }
-  .role-row .preset-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; }
-  .role-row button { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-  #role-form { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-  #role-form h3 { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+  .role-row .name { font-weight: 600; font-family: var(--font-display); }
+  .role-row .meta { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .role-row .preset-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 8px; }
+  .role-row button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-pill); padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  .role-row button:hover { border-color: #c4cec0; color: var(--ink); }
+  #role-form { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  #role-form h3 { margin: 0 0 4px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
   #role-form .row { display: flex; gap: 8px; }
   #role-form input {
-    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit;
+    flex: 1; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; font-family: inherit;
   }
-  #role-form button { align-self: flex-start; background: var(--accent-strong); color: white; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-  #role-form .error { color: #e06767; font-size: 12px; }
+  #role-form input:focus, textarea:focus { outline: 2px solid var(--tier-1-dot); outline-offset: 1px; }
+  #role-form button[type="submit"] { align-self: flex-start; background: var(--ink); color: white; border: none; border-radius: var(--radius-pill); padding: 8px 18px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  #role-form .error { color: #b3402c; font-size: 12px; }
+
+  /* Right rail */
+  .rail { display: flex; flex-direction: column; gap: var(--space-3); overflow: auto; }
+  .rail-block { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; }
+  .rail-block h4 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .rail-live-row { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .rail-live-row .live-dot { animation: none; }
+  .rail-live-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .rail-empty { font-size: 13px; color: var(--muted); }
+  .rail-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; cursor: pointer;
+    border-top: 1px solid var(--line);
+  }
+  .rail-item:first-child { border-top: none; padding-top: 0; }
+  .rail-item .rail-icon { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; flex: none; }
+  .rail-item .rail-icon svg { width: 14px; height: 14px; }
+  .rail-item .rail-text { min-width: 0; }
+  .rail-item .rail-title { font-size: 13px; font-weight: 600; }
+  .rail-item .rail-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .roster-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .roster-row:first-child { border-top: none; padding-top: 0; }
+  .roster-row .name { font-weight: 600; flex: 1; min-width: 0; }
+  .roster-row .count { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+
+  .view-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+  .view-scroll::-webkit-scrollbar-track { background: transparent; }
+  .view-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>WJ-FYP</h1>
-  <nav>
-    <button id="tab-feed" class="active">Chat Feed</button>
-    <button id="tab-kanban">Kanban</button>
-    <button id="tab-roles">Roles</button>
-  </nav>
-</header>
-<main>
-  <section id="view-feed" class="view active"><div id="feed"></div></section>
-  <section id="view-kanban" class="view"><div id="board"></div></section>
-  <section id="view-roles" class="view">
-    <div id="roles">
-      <div id="role-list"></div>
-      <form id="role-form">
-        <h3>Add a custom role</h3>
-        <div class="row">
-          <input id="role-id" placeholder="id (e.g. reviewer)" required />
-          <input id="role-name" placeholder="name (e.g. Reviewer)" required />
-        </div>
-        <div class="row">
-          <input id="role-tier" type="number" placeholder="tier" required />
-          <input id="role-model" placeholder="model" required />
-          <input id="role-count" type="number" placeholder="count" value="1" />
-        </div>
-        <input id="role-personality" placeholder="personality (optional)" />
-        <div id="role-form-error" class="error"></div>
-        <button type="submit">Create role</button>
-      </form>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">WJ</div>
+    <nav class="sidebar-nav">
+      <button id="tab-feed" class="nav-item active" title="Chat feed" aria-label="Chat feed">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+      </button>
+      <button id="tab-kanban" class="nav-item" title="Kanban" aria-label="Kanban">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="10" rx="1.5"/><rect x="16" y="4" width="5" height="13" rx="1.5"/></svg>
+      </button>
+      <button id="tab-roles" class="nav-item" title="Roles" aria-label="Roles">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.3"/><path d="M15.8 14.2c2.7.4 4.7 2.5 4.7 5.8"/></svg>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="live-dot" id="sidebar-live-dot"></span>
     </div>
-  </section>
-</main>
+  </aside>
+
+  <main class="main">
+    <div class="view-head">
+      <div>
+        <h1 class="view-title" id="view-title">
+          <span class="chip" id="view-title-chip"></span>
+          <span id="view-title-text">Every message, as it happens</span>
+        </h1>
+        <p class="view-sub" id="view-sub">The full narrative feed of what every agent said and did.</p>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card" id="kpi-tickets">
+        <div class="kpi-head">
+          <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="10" rx="1.5"/><rect x="16" y="4" width="5" height="13" rx="1.5"/></svg></span>Tickets</span>
+          <span class="kpi-badge" id="kpi-tickets-badge">0% done</span>
+        </div>
+        <div class="kpi-number" id="kpi-tickets-number">0<span class="unit">total</span></div>
+        <div class="capsule-row" id="kpi-tickets-capsules"></div>
+      </div>
+
+      <div class="kpi-card accent" id="kpi-messages">
+        <div class="kpi-head">
+          <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><path d="M4 5h16v11H8l-4 4V5Z"/></svg></span>Messages</span>
+          <span class="kpi-badge" id="kpi-messages-badge">0% tool activity</span>
+        </div>
+        <div class="kpi-number" id="kpi-messages-number">0<span class="unit">logged</span></div>
+        <div class="tier-bar" id="kpi-messages-tierbar"></div>
+      </div>
+
+      <div class="kpi-card dark" id="kpi-attention">
+        <div class="kpi-head">
+          <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>Needs you</span>
+          <span class="live-dot" id="kpi-live-dot"></span>
+        </div>
+        <div class="kpi-attention-row">
+          <div class="kpi-number" id="kpi-attention-number">0<span class="unit" id="kpi-attention-unit">pending</span></div>
+          <button class="kpi-mini-btn" id="kpi-attention-btn" style="display:none;">Review</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pill-row" id="feed-pills">
+      <button class="pill active" data-tier="all">All</button>
+      <button class="pill" data-tier="3">CTO</button>
+      <button class="pill" data-tier="2">Product</button>
+      <button class="pill" data-tier="1">Engineering</button>
+      <button class="pill" data-tier="system">System</button>
+    </div>
+    <div class="pill-row" id="roles-pills" style="display:none;">
+      <button class="pill active" data-preset="all">All</button>
+      <button class="pill" data-preset="preset">Presets</button>
+      <button class="pill" data-preset="custom">Custom</button>
+    </div>
+
+    <div class="view-scroll">
+      <section id="view-feed" class="view active"><div id="feed"></div></section>
+      <section id="view-kanban" class="view"><div id="board"></div></section>
+      <section id="view-roles" class="view">
+        <div id="roles-panel">
+          <div id="role-list"></div>
+          <form id="role-form">
+            <h3>Add a custom role</h3>
+            <div class="row">
+              <input id="role-id" placeholder="id (e.g. reviewer)" required />
+              <input id="role-name" placeholder="name (e.g. Reviewer)" required />
+            </div>
+            <div class="row">
+              <input id="role-tier" type="number" placeholder="tier" required />
+              <input id="role-model" placeholder="model" required />
+              <input id="role-count" type="number" placeholder="count" value="1" />
+            </div>
+            <input id="role-personality" placeholder="personality (optional)" />
+            <div id="role-form-error" class="error"></div>
+            <button type="submit">Create role</button>
+          </form>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="rail">
+    <div class="rail-block">
+      <h4>Live</h4>
+      <div class="rail-live-row"><span class="live-dot" id="rail-live-dot"></span><span id="rail-live-text">Connected</span></div>
+      <p class="rail-live-sub" id="rail-live-sub">Streaming the event log as it's written.</p>
+    </div>
+    <div class="rail-block">
+      <h4>Pending decisions</h4>
+      <div id="rail-pending"><p class="rail-empty">Nothing needs a decision right now.</p></div>
+    </div>
+    <div class="rail-block">
+      <h4>Roster</h4>
+      <div id="rail-roster"></div>
+    </div>
+  </aside>
+</div>
 
 <div id="modal-backdrop">
   <div id="modal">
-    <header style="display:flex;align-items:center;padding:10px 14px;">
+    <header style="display:flex;align-items:center;">
       <span id="modal-title"></span>
       <button id="modal-close">&times;</button>
     </header>
@@ -243,6 +450,25 @@
 
 <script>
 const STATUS_COLUMNS = ["intake", "backlog", "specd", "in_progress", "awaiting_test", "review", "done", "escalated", "halted"];
+const ACTIVE_STATUSES = new Set(["in_progress", "awaiting_test", "review", "escalated"]);
+
+const VIEW_META = {
+  feed: {
+    icon: `<svg class="icon" viewBox="0 0 24 24" style="width:19px;height:19px"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>`,
+    title: "Every message, as it happens",
+    sub: "The full narrative feed of what every agent said and did.",
+  },
+  kanban: {
+    icon: `<svg class="icon" viewBox="0 0 24 24" style="width:19px;height:19px"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="10" rx="1.5"/><rect x="16" y="4" width="5" height="13" rx="1.5"/></svg>`,
+    title: "Where every ticket stands",
+    sub: "Drag-free board, backed by the same FSM the orchestrator drives.",
+  },
+  roles: {
+    icon: `<svg class="icon" viewBox="0 0 24 24" style="width:19px;height:19px"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.3"/><path d="M15.8 14.2c2.7.4 4.7 2.5 4.7 5.8"/></svg>`,
+    title: "Who's on the team",
+    sub: "The preset hierarchy, plus any roles you've added.",
+  },
+};
 
 // message id -> its tool_call/tool_result detail messages (Message.parent_id
 // - see claude_agent.py's turn_id). These never render as their own feed/
@@ -252,6 +478,7 @@ const STATUS_COLUMNS = ["intake", "backlog", "specd", "in_progress", "awaiting_t
 // the ticket-thread modal both draw from the same message stream and a
 // message's details only need parsing out of the raw list once.
 const detailsByParentId = new Map();
+let allMessages = [];
 
 // A message with a parent_id is tool activity belonging to another
 // message's turn (see claude_agent.py's ClaudeAgent) - stash it rather
@@ -271,21 +498,23 @@ function stashIfDetail(m) {
 }
 
 // role id -> tier, used to color-code every place a role shows up (feed,
-// kanban assignee, roles tab) with the same visual language, so the
-// CTO -> Product -> Engineering hierarchy reads at a glance rather than
-// only being implied by text. "system" (deterministic sandbox output,
-// not an agent - see cs3ip-sandbox-design memory) always gets its own
-// color regardless of the role map.
+// kanban assignee, roles tab, roster) with the same visual language, so
+// the CTO -> Product -> Engineering hierarchy reads at a glance rather
+// than only being implied by text. "system" (deterministic sandbox
+// output, not an agent - see cs3ip-sandbox-design memory) always gets
+// its own color regardless of the role map.
 let roleTierById = {};
+let rolesCache = [];
 function tierClassFor(role) {
   if (role === "system") return "tier-system";
   const tier = roleTierById[role];
   return tier ? `tier-${tier}` : "";
 }
 async function loadRoleTiers() {
-  const roles = await fetch("/api/roles").then(r => r.json());
+  rolesCache = await fetch("/api/roles").then(r => r.json());
   roleTierById = {};
-  roles.forEach(r => roleTierById[r.id] = r.tier);
+  rolesCache.forEach(r => roleTierById[r.id] = r.tier);
+  renderRoster();
 }
 
 // A message's own text is expected to be one plain-language line (see
@@ -323,7 +552,7 @@ function renderMessage(m, depth = 0) {
   el.className = "msg";
   el.dataset.type = m.type;
   const tierClass = tierClassFor(m.sender.role);
-  if (tierClass) el.style.borderLeftColor = `var(--${tierClass})`;
+  if (tierClass) el.style.borderLeftColor = `var(--${tierClass}-dot, var(--${tierClass}))`;
   const time = new Date(m.timestamp).toLocaleTimeString();
   el.innerHTML = `<div class="meta"><span class="role ${tierClass}"><span class="tier-dot ${tierClass}"></span>${m.sender.role}</span><span>${m.sender.instance_id}</span><span>${m.type}</span><span>${time}</span></div><div class="text"></div>`;
   renderExpandableText(el.querySelector(".text"), m.content.text);
@@ -346,8 +575,23 @@ function renderMessage(m, depth = 0) {
 }
 
 const feedEl = document.getElementById("feed");
+let feedTierFilter = "all";
+
+function passesFeedFilter(m) {
+  if (feedTierFilter === "all") return true;
+  if (feedTierFilter === "system") return m.sender.role === "system";
+  return String(roleTierById[m.sender.role]) === feedTierFilter;
+}
+
+function renderFeed() {
+  feedEl.innerHTML = "";
+  allMessages.filter(m => !m.parent_id).filter(passesFeedFilter).forEach(m => feedEl.appendChild(renderMessage(m)));
+}
+
 function appendToFeed(m) {
+  allMessages.push(m);
   if (stashIfDetail(m)) return;
+  if (!passesFeedFilter(m)) return;
   feedEl.appendChild(renderMessage(m));
   feedEl.scrollTop = feedEl.scrollHeight;
 }
@@ -355,8 +599,19 @@ function appendToFeed(m) {
 async function loadFeed() {
   const messages = await fetch("/api/messages").then(r => r.json());
   feedEl.innerHTML = "";
-  messages.forEach(appendToFeed);
+  allMessages = [];
+  messages.forEach(m => { allMessages.push(m); stashIfDetail(m); });
+  renderFeed();
+  renderMessagesKpi();
 }
+
+document.getElementById("feed-pills").addEventListener("click", e => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  feedTierFilter = btn.dataset.tier;
+  document.querySelectorAll("#feed-pills .pill").forEach(p => p.classList.toggle("active", p === btn));
+  renderFeed();
+});
 
 const boardEl = document.getElementById("board");
 let ticketsById = {};
@@ -407,11 +662,104 @@ function renderBoard() {
   });
 }
 
+// ---- KPI row: ticket, message and attention stats, reused from data
+// the app already fetches for the feed/kanban/roles views - no new
+// endpoints, just different renderings of the same three lists. ----
+function renderTicketsKpi() {
+  const tickets = Object.values(ticketsById);
+  const total = tickets.length;
+  const done = tickets.filter(t => t.status === "done").length;
+  document.getElementById("kpi-tickets-number").innerHTML = `${total}<span class="unit">total</span>`;
+  document.getElementById("kpi-tickets-badge").textContent = total ? `${Math.round((done / total) * 100)}% done` : "0% done";
+  const capsuleRow = document.getElementById("kpi-tickets-capsules");
+  capsuleRow.innerHTML = "";
+  const shown = tickets.slice(0, 8);
+  shown.forEach(t => {
+    const c = document.createElement("span");
+    c.className = "capsule" + (ACTIVE_STATUSES.has(t.status) ? "" : " off");
+    c.title = `${t.id} - ${t.status}`;
+    capsuleRow.appendChild(c);
+  });
+  if (tickets.length > shown.length) {
+    const more = document.createElement("span");
+    more.className = "capsule-more";
+    more.textContent = `+${tickets.length - shown.length}`;
+    capsuleRow.appendChild(more);
+  }
+  renderAttentionKpi();
+}
+
+function renderMessagesKpi() {
+  const top = allMessages.filter(m => !m.parent_id);
+  const total = top.length;
+  const activity = top.filter(m => m.type === "tool_call" || m.type === "tool_result").length;
+  document.getElementById("kpi-messages-number").innerHTML = `${total}<span class="unit">logged</span>`;
+  document.getElementById("kpi-messages-badge").textContent = total ? `${Math.round((activity / total) * 100)}% tool activity` : "0% tool activity";
+
+  const counts = {};
+  top.forEach(m => {
+    const cls = tierClassFor(m.sender.role) || "tier-1";
+    counts[cls] = (counts[cls] || 0) + 1;
+  });
+  const bar = document.getElementById("kpi-messages-tierbar");
+  bar.innerHTML = "";
+  Object.entries(counts).forEach(([cls, n]) => {
+    const seg = document.createElement("span");
+    seg.style.width = `${(n / (total || 1)) * 100}%`;
+    seg.style.background = `var(--${cls}-dot, var(--${cls}))`;
+    bar.appendChild(seg);
+  });
+}
+
+function renderAttentionKpi() {
+  const pending = Object.values(ticketsById).filter(t => t.pending_trigger && !t.human_decision);
+  const numberEl = document.getElementById("kpi-attention-number");
+  const btn = document.getElementById("kpi-attention-btn");
+  if (pending.length === 0) {
+    numberEl.innerHTML = `<span class="kpi-caught-up">All caught up</span>`;
+    btn.style.display = "none";
+  } else {
+    numberEl.innerHTML = `${pending.length}<span class="unit">pending</span>`;
+    btn.style.display = "";
+    btn.onclick = () => { switchTab("kanban"); openThread(pending[0]); };
+  }
+  renderRailPending(pending);
+}
+
+function renderRailPending(pending) {
+  const el = document.getElementById("rail-pending");
+  if (pending.length === 0) {
+    el.innerHTML = `<p class="rail-empty">Nothing needs a decision right now.</p>`;
+    return;
+  }
+  el.innerHTML = "";
+  pending.forEach(t => {
+    const row = document.createElement("div");
+    row.className = "rail-item";
+    row.innerHTML = `<span class="rail-icon"><svg class="icon" viewBox="0 0 24 24" style="stroke-width:2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+      <div class="rail-text"><div class="rail-title">${t.id}</div><div class="rail-sub">${t.title} &middot; ${t.pending_trigger}</div></div>`;
+    row.onclick = () => { switchTab("kanban"); openThread(t); };
+    el.appendChild(row);
+  });
+}
+
+function renderRoster() {
+  const el = document.getElementById("rail-roster");
+  el.innerHTML = "";
+  rolesCache.slice().sort((a, b) => b.tier - a.tier).forEach(r => {
+    const row = document.createElement("div");
+    row.className = "roster-row";
+    row.innerHTML = `<span class="tier-dot tier-${r.tier}"></span><span class="name">${r.name}</span><span class="count">${r.count}&times; ${r.model}</span>`;
+    el.appendChild(row);
+  });
+}
+
 async function loadTickets() {
   const tickets = await fetch("/api/tickets").then(r => r.json());
   ticketsById = {};
   tickets.forEach(t => ticketsById[t.id] = t);
   renderBoard();
+  renderTicketsKpi();
 }
 
 const modalBackdrop = document.getElementById("modal-backdrop");
@@ -486,6 +834,7 @@ async function recordDecision(ticketId, trigger, notes) {
   const updated = await response.json();
   ticketsById[ticketId] = updated;
   renderBoard();
+  renderTicketsKpi();
   if (openTicketId === ticketId) renderDecisionPanel(updated);
 }
 
@@ -494,30 +843,33 @@ modalBackdrop.onclick = e => { if (e.target === modalBackdrop) { modalBackdrop.c
 
 const roleListEl = document.getElementById("role-list");
 let presetIds = new Set();
+let rolesFilter = "all";
 
 function renderRoles(roles) {
   presetIds = new Set(roles.filter(r => r.is_preset).map(r => r.id));
   roleListEl.innerHTML = "";
-  roles.forEach(role => {
-    const row = document.createElement("div");
-    row.className = "role-row";
-    row.style.borderLeftColor = `var(--tier-${role.tier}, var(--border))`;
-    const tag = role.is_preset ? `<span class="preset-tag">preset</span>` : "";
-    row.innerHTML = `
-      <div>
-        <div class="name"><span class="tier-dot tier-${role.tier}"></span>${role.name} <span class="meta">(${role.id})</span> ${tag}</div>
-        <div class="meta">tier ${role.tier} · ${role.model} · ${role.count} instance${role.count === 1 ? "" : "s"}${
-          role.personality ? ` · "${role.personality}"` : ""
-        }</div>
-      </div>`;
-    if (!role.is_preset) {
-      const del = document.createElement("button");
-      del.textContent = "Delete";
-      del.onclick = () => deleteRole(role.id);
-      row.appendChild(del);
-    }
-    roleListEl.appendChild(row);
-  });
+  roles
+    .filter(r => rolesFilter === "all" || (rolesFilter === "preset") === r.is_preset)
+    .forEach(role => {
+      const row = document.createElement("div");
+      row.className = "role-row";
+      row.style.borderLeftColor = `var(--tier-${role.tier}-dot, var(--line))`;
+      const tag = role.is_preset ? `<span class="preset-tag">preset</span>` : "";
+      row.innerHTML = `
+        <div>
+          <div class="name"><span class="tier-dot tier-${role.tier}"></span>${role.name} <span class="meta">(${role.id})</span> ${tag}</div>
+          <div class="meta">tier ${role.tier} · ${role.model} · ${role.count} instance${role.count === 1 ? "" : "s"}${
+            role.personality ? ` · "${role.personality}"` : ""
+          }</div>
+        </div>`;
+      if (!role.is_preset) {
+        const del = document.createElement("button");
+        del.textContent = "Delete";
+        del.onclick = () => deleteRole(role.id);
+        row.appendChild(del);
+      }
+      roleListEl.appendChild(row);
+    });
 }
 
 async function loadRoles() {
@@ -526,6 +878,14 @@ async function loadRoles() {
   roles.forEach(r => roleTierById[r.id] = r.tier);
 }
 
+document.getElementById("roles-pills").addEventListener("click", e => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  rolesFilter = btn.dataset.preset;
+  document.querySelectorAll("#roles-pills .pill").forEach(p => p.classList.toggle("active", p === btn));
+  loadRoles();
+});
+
 async function deleteRole(roleId) {
   const response = await fetch(`/api/roles/${roleId}`, { method: "DELETE" });
   if (!response.ok) {
@@ -533,6 +893,7 @@ async function deleteRole(roleId) {
     return;
   }
   loadRoles();
+  loadRoleTiers();
 }
 
 const roleFormError = document.getElementById("role-form-error");
@@ -565,21 +926,38 @@ document.getElementById("role-form").addEventListener("submit", async e => {
   e.target.reset();
   document.getElementById("role-count").value = 1;
   loadRoles();
+  loadRoleTiers();
 });
 
 function switchTab(name) {
-  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById(`tab-${name}`).classList.add("active");
   document.getElementById(`view-${name}`).classList.add("active");
+  document.getElementById("feed-pills").style.display = name === "feed" ? "flex" : "none";
+  document.getElementById("roles-pills").style.display = name === "roles" ? "flex" : "none";
+  const meta = VIEW_META[name];
+  document.getElementById("view-title-chip").innerHTML = meta.icon;
+  document.getElementById("view-title-text").textContent = meta.title;
+  document.getElementById("view-sub").textContent = meta.sub;
   if (name === "roles") loadRoles();
 }
 document.getElementById("tab-feed").onclick = () => switchTab("feed");
 document.getElementById("tab-kanban").onclick = () => switchTab("kanban");
 document.getElementById("tab-roles").onclick = () => switchTab("roles");
 
+function setLiveState(connected) {
+  const dots = [document.getElementById("sidebar-live-dot"), document.getElementById("rail-live-dot"), document.getElementById("kpi-live-dot")];
+  dots.forEach(d => d.classList.toggle("down", !connected));
+  document.getElementById("rail-live-text").textContent = connected ? "Connected" : "Reconnecting…";
+  document.getElementById("rail-live-sub").textContent = connected
+    ? "Streaming the event log as it's written."
+    : "Lost the socket - retrying every second.";
+}
+
 function connectWebSocket() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => setLiveState(true);
   ws.onmessage = ev => {
     const { type, data } = JSON.parse(ev.data);
     if (type === "message") {
@@ -587,20 +965,25 @@ function connectWebSocket() {
       // feed and the modal - calling stashIfDetail twice for the same
       // message (once per surface) would double-count it in its parent's
       // Logs panel.
+      allMessages.push(data);
       if (!stashIfDetail(data)) {
-        feedEl.appendChild(renderMessage(data));
-        feedEl.scrollTop = feedEl.scrollHeight;
+        if (passesFeedFilter(data)) {
+          feedEl.appendChild(renderMessage(data));
+          feedEl.scrollTop = feedEl.scrollHeight;
+        }
         if (modalBackdrop.classList.contains("open") && data.ticket_ref && ticketsById[data.ticket_ref]) {
           modalThread.appendChild(renderMessage(data));
         }
       }
+      renderMessagesKpi();
     } else if (type === "ticket_update") {
       ticketsById[data.id] = data;
       renderBoard();
+      renderTicketsKpi();
       if (openTicketId === data.id) renderDecisionPanel(data);
     }
   };
-  ws.onclose = () => setTimeout(connectWebSocket, 1000);
+  ws.onclose = () => { setLiveState(false); setTimeout(connectWebSocket, 1000); };
 }
 
 // Role tiers load first so the very first feed/board render already
@@ -617,7 +1000,8 @@ loadRoleTiers().then(() => {
 });
 connectWebSocket();
 if (location.hash === "#kanban") switchTab("kanban");
-if (location.hash === "#roles") switchTab("roles");
+else if (location.hash === "#roles") switchTab("roles");
+else switchTab("feed");
 </script>
 </body>
 </html>
