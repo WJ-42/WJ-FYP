@@ -5,7 +5,7 @@
 <title>WJ-FYP Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root {
     color-scheme: light;
@@ -51,8 +51,8 @@
     --space-4: 20px;
     --space-5: 32px;
 
-    --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
-    --font-body: "Inter", system-ui, sans-serif;
+    --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+    --font-body: "Hanken Grotesk", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
@@ -106,13 +106,8 @@
   .nav-item:hover { color: #f3f6f1; background: rgba(255,255,255,.06); }
   .nav-item.active { background: var(--accent); color: var(--accent-ink); }
   .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
-  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #6fe08a; box-shadow: 0 0 0 0 rgba(111,224,138,.6); animation: pulse 2s ease-in-out infinite; }
-  .live-dot.down { background: #e08a6f; animation: none; }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(111,224,138,.5); }
-    50% { box-shadow: 0 0 0 5px rgba(111,224,138,0); }
-  }
-  @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fae6c; }
+  .live-dot.down { background: #c1552f; }
 
   /* ---------- Main column ---------- */
   .main {
@@ -226,7 +221,7 @@
   /* Kanban */
   #board { display: flex; gap: var(--space-3); height: 100%; align-items: flex-start; padding-bottom: 8px; }
   .column { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 200px; flex: 1; padding: var(--space-2) var(--space-2) var(--space-3); }
-  .column h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 8px 12px; font-family: var(--font-mono); font-weight: 500; }
+  .column h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 8px 12px; font-family: var(--font-mono); font-weight: 500; }
   .card {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
     padding: 11px 12px; margin-bottom: var(--space-2); cursor: pointer; font-size: 13px;
@@ -281,7 +276,7 @@
   .role-row button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-pill); padding: 5px 12px; cursor: pointer; font-size: 12px; }
   .role-row button:hover { border-color: #c4cec0; color: var(--ink); }
   #role-form { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  #role-form h3 { margin: 0 0 4px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
+  #role-form h2 { margin: 0 0 4px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
   #role-form .row { display: flex; gap: 8px; }
   #role-form input {
     flex: 1; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
@@ -294,9 +289,8 @@
   /* Right rail */
   .rail { display: flex; flex-direction: column; gap: var(--space-3); overflow: auto; }
   .rail-block { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; }
-  .rail-block h4 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .rail-block h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
   .rail-live-row { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .rail-live-row .live-dot { animation: none; }
   .rail-live-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
   .rail-empty { font-size: 13px; color: var(--muted); }
   .rail-item {
@@ -401,7 +395,7 @@
         <div id="roles-panel">
           <div id="role-list"></div>
           <form id="role-form">
-            <h3>Add a custom role</h3>
+            <h2>Add a custom role</h2>
             <div class="row">
               <input id="role-id" placeholder="id (e.g. reviewer)" required />
               <input id="role-name" placeholder="name (e.g. Reviewer)" required />
@@ -422,16 +416,16 @@
 
   <aside class="rail">
     <div class="rail-block">
-      <h4>Live</h4>
+      <h2>Live</h2>
       <div class="rail-live-row"><span class="live-dot" id="rail-live-dot"></span><span id="rail-live-text">Connected</span></div>
       <p class="rail-live-sub" id="rail-live-sub">Streaming the event log as it's written.</p>
     </div>
     <div class="rail-block">
-      <h4>Pending decisions</h4>
+      <h2>Pending decisions</h2>
       <div id="rail-pending"><p class="rail-empty">Nothing needs a decision right now.</p></div>
     </div>
     <div class="rail-block">
-      <h4>Roster</h4>
+      <h2>Roster</h2>
       <div id="rail-roster"></div>
     </div>
   </aside>
@@ -640,7 +634,7 @@ function renderBoard() {
   STATUS_COLUMNS.forEach(status => {
     const col = document.createElement("div");
     col.className = "column";
-    col.innerHTML = `<h3>${status.replace(/_/g, " ")}</h3>`;
+    col.innerHTML = `<h2>${status.replace(/_/g, " ")}</h2>`;
     byStatus[status].forEach(t => {
       const card = document.createElement("div");
       card.className = "card";
