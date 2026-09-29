@@ -5,7 +5,7 @@
 <title>WJ-FYP Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;500;600&family=Cascadia+Code:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Fira+Code:wght@400;700&family=Cascadia+Code:wght@400;700&family=Victor+Mono:wght@400;700&display=swap" rel="stylesheet" />
 <script>
   // Applied before the stylesheet paints anything, straight from
   // localStorage, so a returning viewer's theme/font/accessibility
@@ -16,14 +16,15 @@
     // Kept in sync by hand with the VALID_THEMES/VALID_FONTS lists in
     // the main <script> at the bottom of the page - this copy exists
     // only so it can run before that script (and the stylesheet) load.
-    var VALID_THEMES = ["dark", "light", "tokyo-night", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
-    var VALID_FONTS = ["accessible", "jetbrains", "cascadia"];
+    var VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+    var VALID_FONTS = ["jetbrains", "firacode", "cascadia", "victor", "plex"];
     try {
       var root = document.documentElement;
       var theme = localStorage.getItem("wjfyp.settings.theme");
       if (VALID_THEMES.indexOf(theme) !== -1) root.dataset.theme = theme;
       var font = localStorage.getItem("wjfyp.settings.font");
       if (VALID_FONTS.indexOf(font) !== -1) root.dataset.font = font;
+      if (localStorage.getItem("wjfyp.settings.fontWeight") === "bold") root.dataset.fontWeight = "bold";
       var textSize = localStorage.getItem("wjfyp.settings.textSize");
       if (textSize === "sm" || textSize === "lg") root.dataset.textsize = textSize;
       if (localStorage.getItem("wjfyp.settings.reduceMotion") === "1") root.dataset.reduceMotion = "1";
@@ -97,8 +98,13 @@
     --space-5: 32px;
 
     --font-display: "Bricolage Grotesque", system-ui, sans-serif;
-    --font-body: "Hanken Grotesk", system-ui, sans-serif;
+    /* JetBrains Mono is Omarchy's own default font (confirmed via
+       omarchy-font-current on the machine this was built on), so it's
+       the dashboard's baseline body font too - see the Font setting
+       for the other four Omarchy-shipped options. */
+    --font-body: "JetBrains Mono", var(--font-mono), ui-monospace, monospace;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+    --font-weight-body: 400;
     --text-scale: 1;
 
     /* Subtle fill/border overlays (icon chips, badge backgrounds, a
@@ -145,31 +151,31 @@
     --overlay-c: rgba(14,18,13,.25);
   }
 
-  :root[data-theme="tokyo-night"] {
+  :root[data-theme="hackerman"] {
     color-scheme: dark;
-    --wash: #0e0e14;
-    --surface: #13141c;
-    --surface-raised: #1a1b26;
-    --surface-sunken: #08080b;
-    --line: #292e42;
-    --line-strong: #414868;
-    --text: #c0caf5;
-    --text-soft: #b4bee6;
-    --muted: #a9b1d6;
-    --accent: #7aa2f7;
+    --wash: #06060c;
+    --surface: #080910;
+    --surface-raised: #0b0c16;
+    --surface-sunken: #030307;
+    --line: #1f253a;
+    --line-strong: #2d3450;
+    --text: #ddf7ff;
+    --text-soft: #b5c5db;
+    --muted: #767a9d;
+    --accent: #82fb9c;
     --accent-ink: #14170f;
-    --emphasis-fill: #c0caf5;
-    --emphasis-text: #08080b;
-    --sunken-text: #c0caf5;
-    --sunken-text-soft: #b4bee6;
-    --tier-3: #e0af68;
-    --tier-3-dot: #e0af68;
-    --tier-2: #ad8ee6;
-    --tier-2-dot: #ad8ee6;
-    --tier-1: #7aa2f7;
-    --tier-1-dot: #7aa2f7;
-    --tier-system: #9ece6a;
-    --tier-system-dot: #9ece6a;
+    --emphasis-fill: #ddf7ff;
+    --emphasis-text: #030307;
+    --sunken-text: #ddf7ff;
+    --sunken-text-soft: #b5c5db;
+    --tier-3: #50f7d4;
+    --tier-3-dot: #50f7d4;
+    --tier-2: #86a7df;
+    --tier-2-dot: #86a7df;
+    --tier-1: #829dd4;
+    --tier-1-dot: #829dd4;
+    --tier-system: #4fe88f;
+    --tier-system-dot: #4fe88f;
   }
 
   :root[data-theme="catppuccin"] {
@@ -379,13 +385,20 @@
     --line: #a8b6a2; --line-strong: #8a9a83; --muted: #2c342a; --text-soft: #181d15;
   }
 
-  /* Font: "mono" reads everything in the monospace face; "accessible"
-     switches body text to Atkinson Hyperlegible, a typeface designed
-     by the Braille Institute specifically to keep easily-confused
-     letterforms (I/l/1, etc.) visually distinct at small sizes. */
-  :root[data-font="accessible"] { --font-body: "Atkinson Hyperlegible", system-ui, sans-serif; }
+  /* Font: five of Omarchy's own font choices (JetBrains Mono is its
+     default on this machine; Fira Code, Cascadia Code, Victor Mono,
+     and IBM Plex Mono are all real installable options from Omarchy's
+     own font-install menu, cross-referenced against which are also
+     among the most widely used programming fonts). Each pairs with a
+     Bold toggle rather than a separate named "accessible"/"default"
+     option - --font-weight-body carries that independently of which
+     family is picked. */
   :root[data-font="jetbrains"] { --font-body: "JetBrains Mono", var(--font-mono), ui-monospace, monospace; }
+  :root[data-font="firacode"] { --font-body: "Fira Code", var(--font-mono), ui-monospace, monospace; }
   :root[data-font="cascadia"] { --font-body: "Cascadia Code", var(--font-mono), ui-monospace, monospace; }
+  :root[data-font="victor"] { --font-body: "Victor Mono", var(--font-mono), ui-monospace, monospace; }
+  :root[data-font="plex"] { --font-body: "IBM Plex Mono", ui-monospace, monospace; }
+  :root[data-font-weight="bold"] { --font-weight-body: 700; }
 
   /* Text size only scales actual reading content (message bodies,
      card titles, role descriptions) - not chrome like nav, labels, or
@@ -406,6 +419,7 @@
   body {
     margin: 0;
     font-family: var(--font-body);
+    font-weight: var(--font-weight-body);
     background: var(--wash);
     color: var(--text);
     line-height: 1.5;
@@ -499,10 +513,10 @@
      header only ever holds a short icon+label, so the badge - whose
      text length varies ("20% done" vs "20% tool activity") - never
      has to compete with it for width and wrap awkwardly. */
-  .kpi-main-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: nowrap; }
+  .kpi-main-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
   .kpi-badge {
     font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill);
-    background: var(--overlay-b); white-space: nowrap; flex: none;
+    background: var(--overlay-b); flex: none; max-width: 100%;
   }
   .kpi-card.accent .kpi-badge { background: rgba(14,18,13,.1); }
   .kpi-number { font-family: var(--font-display); font-weight: 700; font-size: 40px; line-height: 1; }
@@ -621,9 +635,9 @@
   .card {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
     padding: 11px 12px; margin-bottom: var(--space-2); cursor: pointer; font-size: calc(13px * var(--text-scale));
-    transition: border-color .15s ease, transform .15s ease;
+    transition: border-color .15s ease;
   }
-  .card:hover { border-color: var(--tier-1-dot); transform: translateY(-1px); }
+  .card:hover { border-color: var(--tier-1-dot); }
   .card .id { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
   .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--text-soft); margin-top: 6px; text-transform: capitalize; }
   .badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: var(--radius-pill); margin-top: 6px; font-weight: 600; }
@@ -942,7 +956,7 @@
           <div class="settings-pills" data-setting="theme">
             <button class="pill" data-value="dark">Dark</button>
             <button class="pill" data-value="light">Light</button>
-            <button class="pill" data-value="tokyo-night">Tokyo Night</button>
+            <button class="pill" data-value="hackerman">Hackerman</button>
             <button class="pill" data-value="catppuccin">Catppuccin</button>
             <button class="pill" data-value="catppuccin-latte">Catppuccin Latte</button>
             <button class="pill" data-value="nord">Nord</button>
@@ -956,12 +970,23 @@
         <div class="settings-row stack">
           <span class="label">Font</span>
           <div class="settings-pills" data-setting="font">
-            <button class="pill" data-value="default">Default</button>
-            <button class="pill" data-value="accessible">Accessible</button>
             <button class="pill" data-value="jetbrains">JetBrains Mono</button>
+            <button class="pill" data-value="firacode">Fira Code</button>
             <button class="pill" data-value="cascadia">Cascadia Code</button>
+            <button class="pill" data-value="victor">Victor Mono</button>
+            <button class="pill" data-value="plex">IBM Plex Mono</button>
           </div>
-          <p class="settings-local-note" style="margin-top:0;">JetBrains Mono and Cascadia Code are Omarchy's own terminal font choices.</p>
+          <div class="settings-row" style="padding:6px 0 0;">
+            <div>
+              <div class="label">Bold</div>
+              <div class="sub">Use the bold weight of the selected font.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-font-bold" />
+              <span class="track"></span>
+            </label>
+          </div>
+          <p class="settings-local-note" style="margin-top:0;">Omarchy's own font choices - JetBrains Mono is its default.</p>
         </div>
         <div class="settings-row stack">
           <span class="label">Density</span>
@@ -1731,17 +1756,23 @@ const root = document.documentElement;
 // comment above :root[data-theme="light"] for where the values come
 // from). Kept in sync by hand with the VALID_THEMES copy in the early
 // <head> script.
-const VALID_THEMES = ["dark", "light", "tokyo-night", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
-const VALID_FONTS = ["accessible", "jetbrains", "cascadia"];
+const VALID_THEMES = ["dark", "light", "hackerman", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+// The 5 fonts always have exactly one selected - no "no font chosen"
+// state - so applyFont always sets a real value, falling back to
+// jetbrains (Omarchy's own default) rather than deleting the attribute.
+const VALID_FONTS = ["jetbrains", "firacode", "cascadia", "victor", "plex"];
 
 function applyTheme(value) {
   root.dataset.theme = VALID_THEMES.includes(value) ? value : "dark";
   try { localStorage.setItem("wjfyp.settings.theme", value); } catch {}
 }
 function applyFont(value) {
-  if (VALID_FONTS.includes(value)) root.dataset.font = value;
-  else delete root.dataset.font;
+  root.dataset.font = VALID_FONTS.includes(value) ? value : "jetbrains";
   try { localStorage.setItem("wjfyp.settings.font", value); } catch {}
+}
+function applyFontWeight(bold) {
+  if (bold) root.dataset.fontWeight = "bold"; else delete root.dataset.fontWeight;
+  try { localStorage.setItem("wjfyp.settings.fontWeight", bold ? "bold" : "regular"); } catch {}
 }
 function applyTextSize(value) {
   if (value === "sm" || value === "lg") root.dataset.textsize = value;
@@ -1772,18 +1803,21 @@ document.querySelectorAll(".settings-pills").forEach(group => {
 
 const reduceMotionInput = document.getElementById("setting-reduce-motion");
 const highContrastInput = document.getElementById("setting-high-contrast");
+const fontBoldInput = document.getElementById("setting-font-bold");
 reduceMotionInput.addEventListener("change", e => applyReduceMotion(e.target.checked));
 highContrastInput.addEventListener("change", e => applyHighContrast(e.target.checked));
+fontBoldInput.addEventListener("change", e => applyFontWeight(e.target.checked));
 
 function syncSettingsUI() {
   const theme = root.dataset.theme || "dark";
-  const font = root.dataset.font || "default";
+  const font = root.dataset.font || "jetbrains";
   const textSize = root.dataset.textsize || "md";
   document.querySelectorAll('.settings-pills[data-setting="theme"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === theme));
   document.querySelectorAll('.settings-pills[data-setting="font"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === font));
   document.querySelectorAll('.settings-pills[data-setting="textSize"] .pill').forEach(p => p.classList.toggle("active", p.dataset.value === textSize));
   reduceMotionInput.checked = root.dataset.reduceMotion === "1";
   highContrastInput.checked = root.dataset.contrast === "high";
+  fontBoldInput.checked = root.dataset.fontWeight === "bold";
 }
 
 // Local account profile: { name, avatar } as a data: URL, or null
