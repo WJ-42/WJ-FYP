@@ -19,6 +19,7 @@ from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import HandoffNote, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import AgentContext
+from wjfyp.orchestrator.budget import BudgetExceededError, SpendGuard
 from wjfyp.orchestrator.claude_agent import ClaudeAgent, build_agent_pool
 from wjfyp.sandbox.controller import CommandResult, TestResult
 from wjfyp.sandbox.fake import FakeSandboxController
@@ -288,6 +289,27 @@ class ClaudeAgentTest(unittest.TestCase):
         self.assertEqual(client.captured_calls[0]["tool_choice"], {"type": "tool", "name": "declare_outcome"})
         # only the single declare_outcome tool, no sandbox tools, at this stage
         self.assertEqual(len(client.captured_calls[0]["tools"]), 1)
+
+    def test_spend_guard_records_usage_after_a_real_call(self) -> None:
+        client = _FakeClient(_declare_args("approved"), input_tokens=1000, output_tokens=1000)
+        guard = SpendGuard(cap_usd=100.0)
+        agent = ClaudeAgent(_cto_role(), "cto-1", client=client, spend_guard=guard)
+
+        agent.invoke(_context(TicketStatus.REVIEW))
+
+        # cto role is claude-opus-5: $5/$25 per MTok.
+        self.assertAlmostEqual(guard.spent_usd, (1000 * 5.0 + 1000 * 25.0) / 1_000_000, places=8)
+
+    def test_spend_guard_already_over_cap_blocks_the_call_entirely(self) -> None:
+        client = _FakeClient(_declare_args("approved"))
+        guard = SpendGuard(cap_usd=0.0)  # already at/over any real cap
+
+        agent = ClaudeAgent(_cto_role(), "cto-1", client=client, spend_guard=guard)
+
+        with self.assertRaises(BudgetExceededError):
+            agent.invoke(_context(TicketStatus.REVIEW))
+        # The whole point: refused before the API call, not after.
+        self.assertEqual(client.captured_calls, [])
 
 
 class ClaudeAgentInProgressTest(unittest.TestCase):

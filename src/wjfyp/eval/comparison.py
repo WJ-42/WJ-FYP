@@ -11,6 +11,7 @@ from wjfyp.eval.rubric import RubricJudge, RubricScore
 from wjfyp.eval.runner import EvalRunResult, run_eval_task
 from wjfyp.eval.task import EvalTask
 from wjfyp.eventlog import EventLog
+from wjfyp.orchestrator.budget import SpendGuard
 from wjfyp.orchestrator.claude_agent import build_agent_pool
 from wjfyp.orchestrator.loop import HiddenTestLookup, SandboxFactory
 from wjfyp.sandbox.docker_controller import DockerAttemptSandbox
@@ -107,6 +108,7 @@ def run_structure_comparison(
     hidden_tests: HiddenTestLookup | None = None,
     sandbox_factory_builder: Callable[[GitWorkspace], SandboxFactory] | None = None,
     agent_pool_builder: Callable[[Path, EventLog], dict] | None = None,
+    spend_guard: SpendGuard | None = None,
 ) -> StructureComparison:
     """Run one EvalTask through two team configs end to end, each in its
     own cloned repo / GitWorkspace / EventLog, and diff the results.
@@ -136,9 +138,19 @@ def run_structure_comparison(
     `sandbox_factory_builder` is, so tests can supply scripted agents
     per condition without needing Docker, an API key, or the real
     config/roles*.yaml files at all.
+
+    `spend_guard`, if given, is shared across BOTH conditions' real
+    ClaudeAgent instances - a single dollar ceiling for the whole
+    comparison, not one per condition, since the thing being protected
+    is the account's actual remaining balance, not a per-condition
+    budget. Only wired in when the default `build_agent_pool` is
+    actually used - an injected `agent_pool_builder` (as every test uses)
+    is responsible for its own agents and never sees this at all.
     """
     build_factory = sandbox_factory_builder or _default_sandbox_factory_builder
-    build_pool = agent_pool_builder or build_agent_pool
+    build_pool = agent_pool_builder or (
+        lambda roles_path, event_log: build_agent_pool(roles_path, event_log, spend_guard=spend_guard)
+    )
     # Docker bind mounts require an absolute host path - DockerAttemptSandbox
     # binds workspace.repo_path directly (docker_controller.py), and a
     # relative path there isn't just wrong, Docker silently reinterprets it

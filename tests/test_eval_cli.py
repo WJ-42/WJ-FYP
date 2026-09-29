@@ -11,6 +11,7 @@ from wjfyp.eval.rubric import AxisScore, RubricScore
 from wjfyp.eval.runner import EvalRunResult
 from wjfyp.eval.scoring import TaskScore
 from wjfyp.eval.task import Checkpoint, EvalTask
+from wjfyp.orchestrator.budget import BudgetExceededError
 
 
 def _sample_tasks() -> dict[str, EvalTask]:
@@ -161,6 +162,71 @@ class RunCompareTest(unittest.TestCase):
         )
 
         self.assertIsNone(captured_kwargs["judge"])
+
+    def test_no_budget_cap_by_default_passes_no_guard_and_prints_nothing_extra(self) -> None:
+        out = io.StringIO()
+        captured_kwargs = {}
+
+        def runner(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _canned_comparison()
+
+        run_compare(
+            _sample_tasks(), "demo-task",
+            ConditionSpec(label="hierarchical", roles_path=Path("config/roles.yaml")),
+            ConditionSpec(label="flat", roles_path=Path("config/roles_flat.yaml")),
+            Path("/template"), Path("/work"),
+            out=out, runner=runner,
+        )
+
+        self.assertIsNone(captured_kwargs["spend_guard"])
+        self.assertNotIn("estimated spend", out.getvalue())
+
+    def test_budget_cap_given_builds_a_guard_and_reports_its_spend(self) -> None:
+        """The runner is what actually spends against the guard (via real
+        ClaudeAgent calls in production) - simulated here by having the
+        fake runner record against the guard it was handed, proving
+        run_compare wires the same guard object through end to end.
+        """
+        out = io.StringIO()
+
+        def runner(*args, **kwargs):
+            from types import SimpleNamespace
+
+            kwargs["spend_guard"].record(
+                "claude-opus-5", SimpleNamespace(input_tokens=1_000_000, output_tokens=0)
+            )
+            return _canned_comparison()
+
+        code = run_compare(
+            _sample_tasks(), "demo-task",
+            ConditionSpec(label="hierarchical", roles_path=Path("config/roles.yaml")),
+            ConditionSpec(label="flat", roles_path=Path("config/roles_flat.yaml")),
+            Path("/template"), Path("/work"),
+            budget_cap=10.0, out=out, runner=runner,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("estimated spend this run: $5.0000 (cap $10.00)", out.getvalue())
+
+    def test_budget_exceeded_aborts_with_exit_code_two(self) -> None:
+        out = io.StringIO()
+
+        def runner(*args, **kwargs):
+            raise BudgetExceededError("spend guard tripped: $5.0000 spent >= $5.00 cap")
+
+        code = run_compare(
+            _sample_tasks(), "demo-task",
+            ConditionSpec(label="hierarchical", roles_path=Path("config/roles.yaml")),
+            ConditionSpec(label="flat", roles_path=Path("config/roles_flat.yaml")),
+            Path("/template"), Path("/work"),
+            budget_cap=5.0, out=out, runner=runner,
+        )
+
+        self.assertEqual(code, 2)
+        text = out.getvalue()
+        self.assertIn("budget cap hit, aborting", text)
+        self.assertIn("estimated spend this run", text)
 
 
 class MainCompareTest(unittest.TestCase):

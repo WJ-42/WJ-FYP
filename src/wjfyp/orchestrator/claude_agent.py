@@ -12,6 +12,7 @@ from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent, MessageType, TokenCost
 from wjfyp.models.ticket import TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext, AgentResponse
+from wjfyp.orchestrator.budget import SpendGuard
 from wjfyp.orchestrator.fsm import agent_facing_triggers
 from wjfyp.sandbox.controller import SandboxController
 
@@ -391,7 +392,11 @@ def _cached_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [*rest, {**last_message, "content": new_content}]
 
 
-def build_agent_pool(roles_path: Path = DEFAULT_ROLES_PATH, event_log: EventLog | None = None) -> dict[str, list[Agent]]:
+def build_agent_pool(
+    roles_path: Path = DEFAULT_ROLES_PATH,
+    event_log: EventLog | None = None,
+    spend_guard: SpendGuard | None = None,
+) -> dict[str, list[Agent]]:
     """Loads a roles.yaml (or roles_flat.yaml) file into the `agents`
     dict shape orchestrator.loop.run() expects - one real ClaudeAgent
     instance per role, per RoleConfig.count. Generalizes what
@@ -399,10 +404,17 @@ def build_agent_pool(roles_path: Path = DEFAULT_ROLES_PATH, event_log: EventLog 
     so callers that need more than one team config (e.g. Option B's
     hierarchical-vs-flat comparison, see cs3ip-fyp-overview memory) can
     build either without duplicating this assembly.
+
+    `spend_guard`, if given, is shared by every ClaudeAgent instance this
+    builds - a real-money circuit breaker (see orchestrator/budget.py),
+    not something each role or team config should get its own copy of.
     """
     roles = load_roles(roles_path)
     return {
-        role.id: [ClaudeAgent(role, f"{role.id}-{i + 1}", event_log=event_log) for i in range(role.count)]
+        role.id: [
+            ClaudeAgent(role, f"{role.id}-{i + 1}", event_log=event_log, spend_guard=spend_guard)
+            for i in range(role.count)
+        ]
         for role in roles
     }
 
@@ -451,12 +463,28 @@ class ClaudeAgent:
         instance_id: str,
         client: anthropic.Anthropic | None = None,
         event_log: EventLog | None = None,
+        spend_guard: SpendGuard | None = None,
     ):
         self.role = role_config.id
         self.instance_id = instance_id
         self._role_config = role_config
         self._client = client or anthropic.Anthropic()
         self._event_log = event_log
+        self._spend_guard = spend_guard
+
+    def _create(self, **kwargs: Any) -> Any:
+        """Every real API call goes through here, never
+        self._client.messages.create directly - check() before, so a
+        call already known to exceed the cap never starts, and record()
+        after, with the real usage the call actually billed. See
+        orchestrator/budget.py's SpendGuard.
+        """
+        if self._spend_guard is not None:
+            self._spend_guard.check()
+        response = self._client.messages.create(**kwargs)
+        if self._spend_guard is not None:
+            self._spend_guard.record(self._role_config.model, response.usage)
+        return response
 
     def invoke(self, context: AgentContext) -> AgentResponse:
         triggers = agent_facing_triggers(context.ticket.status)
@@ -471,7 +499,7 @@ class ClaudeAgent:
         return self._invoke_single_turn(context, triggers)
 
     def _invoke_single_turn(self, context: AgentContext, triggers: list[str]) -> AgentResponse:
-        response = self._client.messages.create(
+        response = self._create(
             model=self._role_config.model,
             max_tokens=16000,
             system=_cached_system(_base_system_prompt(self._role_config, context.ticket.status, triggers)),
@@ -513,7 +541,7 @@ class ClaudeAgent:
         has_committed = False
 
         for _ in range(MAX_SANDBOX_ITERATIONS):
-            response = self._client.messages.create(
+            response = self._create(
                 model=self._role_config.model,
                 max_tokens=16000,
                 system=system,
@@ -584,7 +612,7 @@ class ClaudeAgent:
                     ),
                 }
             )
-            response = self._client.messages.create(
+            response = self._create(
                 model=self._role_config.model,
                 max_tokens=16000,
                 system=system,

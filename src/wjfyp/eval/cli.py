@@ -21,6 +21,7 @@ from wjfyp.eval.comparison import ConditionSpec, StructureComparison, run_struct
 from wjfyp.eval.rubric import LLMRubricJudge
 from wjfyp.eval.task import EvalTask
 from wjfyp.eval.tasks import TASKS
+from wjfyp.orchestrator.budget import BudgetExceededError, SpendGuard
 
 
 def list_tasks(tasks: dict[str, EvalTask], out: TextIO = sys.stdout) -> None:
@@ -82,19 +83,36 @@ def run_compare(
     template_repo_path: Path,
     work_dir: Path,
     use_judge: bool = True,
+    budget_cap: float | None = None,
     out: TextIO = sys.stdout,
     runner: Callable[..., StructureComparison] = run_structure_comparison,
 ) -> int:
     """`runner` is injectable so tests don't need Docker or a real API
     key - same dependency-injection shape list_tasks/show_task already
     use (`tasks`/`out` as explicit params, not module globals).
+
+    `budget_cap`, if given, is a USD ceiling shared across both
+    conditions' real API calls (see orchestrator/budget.py's SpendGuard)
+    - a runaway loop (known or not yet found) gets a hard stop instead of
+    an unbounded real bill. Exit code 2 distinguishes a budget trip from
+    every other failure (1), so a driver script can tell the two apart.
     """
     task = tasks.get(task_id)
     if task is None:
         print(f"unknown task id: {task_id!r}", file=out)
         return 1
     judge = LLMRubricJudge() if use_judge else None
-    comparison = runner(task, condition_a, condition_b, template_repo_path, work_dir, judge=judge)
+    guard = SpendGuard(cap_usd=budget_cap) if budget_cap is not None else None
+    try:
+        comparison = runner(
+            task, condition_a, condition_b, template_repo_path, work_dir, judge=judge, spend_guard=guard
+        )
+    except BudgetExceededError as exc:
+        print(f"budget cap hit, aborting: {exc}", file=out)
+        return 2
+    finally:
+        if guard is not None:
+            print(f"estimated spend this run: ${guard.spent_usd:.4f} (cap ${guard.cap_usd:.2f})", file=out)
     print_comparison(comparison, out=out)
     return 0
 
@@ -119,6 +137,17 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser.add_argument(
         "--no-judge", action="store_true", help="skip the rubric judge (2 fewer API calls)"
     )
+    compare_parser.add_argument(
+        "--budget-cap",
+        type=float,
+        default=5.0,
+        help=(
+            "USD safety cap shared across both conditions' real API calls, a "
+            "conservative estimate (see orchestrator/budget.py) - the run "
+            "aborts (exit code 2) the moment it's reached rather than "
+            "spending past it (default: 5.00)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -136,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             args.repo,
             args.work_dir,
             use_judge=not args.no_judge,
+            budget_cap=args.budget_cap,
         )
 
     return 0
