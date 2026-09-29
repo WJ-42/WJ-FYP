@@ -77,6 +77,24 @@ class DockerAttemptSandboxIntegrationTest(unittest.TestCase):
         finally:
             sandbox.close()
 
+    def test_run_tests_with_no_tests_in_the_repo_counts_as_passed(self) -> None:
+        """Found for real on WJ-FYP's first live Option B run, 2026-09-29:
+        a repo/task with no pytest-expressible tests at all (this
+        fixture has none - setUp's own test_sample.py isn't checked out
+        on this ticket's branch, only main) legitimately has nothing to
+        fail here, and pytest's own exit code 5 says exactly that -
+        distinct from exit code 1, a real test failure.
+        """
+        ticket = Ticket(id="TCK-2", title="t", description="d", branch_name="ticket/TCK-2")
+        sandbox = DockerAttemptSandbox(ticket, self.workspace)
+        try:
+            sandbox.run_command("rm test_sample.py")
+            result = sandbox.run_tests()
+            self.assertTrue(result.passed)
+            self.assertIn("no tests ran", result.output)
+        finally:
+            sandbox.close()
+
     def test_git_commit_pushes_back_to_the_host_workspace(self) -> None:
         # The core sandbox-design mechanic that had never actually run
         # against a real daemon before Docker access was fixed (FYP-22):

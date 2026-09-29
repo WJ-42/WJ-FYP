@@ -99,15 +99,33 @@ class DockerAttemptSandbox:
     def run_command(self, cmd: str) -> CommandResult:
         return self._exec(cmd)
 
+    # pytest's own documented exit code for "collection succeeded, zero
+    # tests matched" - distinct from 1 (some test failed). A repo/task
+    # with no pytest-expressible tests at all (e.g. sde-fix-factual-
+    # mistake, a pure content fix scored by the eval harness's own Python
+    # checkpoints, never by pytest) legitimately has nothing to run here,
+    # which is not the same claim as "a test failed". Found for real on
+    # WJ-FYP's first live Option B run, 2026-09-29: without this, such a
+    # ticket could never pass this deterministic gate no matter how
+    # correct the fix was, and would retry/escalate/halt on pure noise.
+    _PYTEST_NO_TESTS_COLLECTED_EXIT_CODE = 5
+
     def run_tests(self) -> TestResult:
         # Agent-visible check only - runs whatever tests already live in
         # the repo, no FAIL_TO_PASS/PASS_TO_PASS breakdown. The
         # authoritative hidden-test verification the orchestrator relies
         # on at awaiting_test is run_hidden_tests(), never this method
         # (see HiddenTestSpec's docstring for why that separation matters).
+        #
+        # "No tests collected" counts as passed, the same "nothing to
+        # check is vacuously satisfied" principle run_hidden_tests()
+        # already applies to an empty spec - not full test discovery
+        # under a misleading label, just an honest "there was nothing
+        # here to fail."
         result = self._exec("python -m pytest -q")
+        passed = result.exit_code in (0, self._PYTEST_NO_TESTS_COLLECTED_EXIT_CODE)
         return TestResult(
-            passed=result.exit_code == 0,
+            passed=passed,
             fail_to_pass_total=0,
             fail_to_pass_passed=0,
             pass_to_pass_total=0,
