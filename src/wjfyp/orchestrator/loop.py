@@ -9,7 +9,13 @@ from wjfyp.models.channel import Channel
 from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent, MessageType
 from wjfyp.models.ticket import Ticket, TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext
-from wjfyp.orchestrator.fsm import active_role, next_state, requires_human_approval
+from wjfyp.orchestrator.fsm import (
+    RETRY_COUNTED_TRIGGERS,
+    RETRY_OVERFLOW_TRIGGER,
+    active_role,
+    next_state,
+    requires_human_approval,
+)
 from wjfyp.sandbox.controller import SandboxController
 from wjfyp.sandbox.git_workspace import GitWorkspace
 from wjfyp.sandbox.hidden_tests import HiddenTestSpec
@@ -26,16 +32,37 @@ SandboxFactory = Callable[[Ticket], SandboxController]
 # model, not part of it (see cs3ip-evaluation-detail memory).
 HiddenTestLookup = Callable[[Ticket], "HiddenTestSpec | None"]
 
-# The one trigger the orchestrator itself overrides rather than passing
-# through verbatim: run_tests() always reports a plain pass/fail, but
-# whether a failure stays within budget or forces an escalation depends
-# on Ticket.retry_count, which is orchestrator-owned state.
-_RETRY_OVERFLOW_TRIGGER = "retry_cap_exceeded"
+# Landing here resets the shared retry counter (see Ticket.retry_count's
+# docstring and fsm.RETRY_COUNTED_TRIGGERS). Only escalated resets it -
+# a human's cto_override decision is what grants a genuinely fresh
+# budget. REVIEW used to reset it too, which was the actual bug behind
+# FYP-27: a ticket could cycle through review indefinitely, each
+# changes_requested rejection getting a full fresh budget just for
+# having reached review at all, regardless of how many times that had
+# already happened.
+_RETRY_RESETTING_STATES = {TicketStatus.ESCALATED}
 
-# Landing in either of these resets the retry counter - it only tracks
-# the awaiting_test <-> in_progress loop, per Ticket.retry_count's
-# docstring.
-_RETRY_RESETTING_STATES = {TicketStatus.REVIEW, TicketStatus.ESCALATED}
+
+def _apply_retry_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]:
+    """If (ticket.status, trigger) is one of the shared retry-counted
+    edges (fsm.RETRY_COUNTED_TRIGGERS), increments Ticket.retry_count and,
+    once it exceeds retry_cap, overrides the trigger to
+    RETRY_OVERFLOW_TRIGGER so the ticket escalates instead of looping
+    back to engineering again. Otherwise returns the ticket and trigger
+    unchanged.
+
+    Call this immediately before whichever _apply_transition() call will
+    actually fire the trigger - not any earlier - so a trigger that gets
+    paused for human approval (and possibly overridden to something else
+    entirely by that human's decision) is never counted against the
+    budget before it's known to actually apply. See FYP-27.
+    """
+    if (ticket.status, trigger) not in RETRY_COUNTED_TRIGGERS:
+        return ticket, trigger
+    retry_count = ticket.retry_count + 1
+    if retry_count > ticket.retry_cap:
+        trigger = RETRY_OVERFLOW_TRIGGER
+    return ticket.model_copy(update={"retry_count": retry_count}), trigger
 
 
 @dataclass
@@ -145,12 +172,7 @@ def _step_awaiting_test(
     event_log.append_message(message)
 
     trigger = "tests_passed" if result.passed else "tests_failed"
-    if trigger == "tests_failed":
-        retry_count = ticket.retry_count + 1
-        if retry_count > ticket.retry_cap:
-            trigger = _RETRY_OVERFLOW_TRIGGER
-        ticket = ticket.model_copy(update={"retry_count": retry_count})
-
+    ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     sandbox.close()  # the attempt is over either way
     return StepResult(ticket=ticket, advanced=True, sandbox=None)
@@ -234,6 +256,7 @@ def step(
         event_log.save_ticket(ticket)
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
+    ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     return StepResult(ticket=ticket, advanced=True, sandbox=sandbox)
 
@@ -312,6 +335,12 @@ def resume(
     without a test that would have caught it. Only logged when notes
     are actually given - a plain approve/reject doesn't need a message
     of its own beyond the agent turns already logged.
+
+    `trigger` still goes through the same shared retry budget as an
+    autonomous-mode trigger would (see _apply_retry_budget) - a human
+    repeatedly choosing "request changes" in intervention mode can drive
+    the review-rejection loop exactly as unboundedly as an autonomous
+    CTO agent can, so it draws from the same cap (FYP-27).
     """
     if notes:
         event_log.append_message(
@@ -330,6 +359,7 @@ def resume(
                 ),
             )
         )
+    ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     return run(
         ticket, channel, event_log, agents, sandbox_factory, settings,

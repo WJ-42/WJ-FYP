@@ -29,8 +29,17 @@ class Ticket(BaseModel):
     branch_name: str | None = None
     parent_epic: str | None = None
 
-    # Retry tracking for the in_progress <-> awaiting_test loop. Reset when
-    # the ticket leaves that loop (either to review or to escalated).
+    # Shared correction-attempt budget for both loop-back edges: a failed
+    # test sending a ticket from awaiting_test back to in_progress, and
+    # the CTO requesting changes at review, also back to in_progress.
+    # One shared counter, not one per edge (see fsm.RETRY_COUNTED_TRIGGERS
+    # and loop.py's _apply_retry_budget) - a CTO that keeps genuinely
+    # rejecting resubmitted code that already passed its own tests is
+    # just as capable of looping forever as a test that keeps failing
+    # (FYP-27: a real run hit exactly this, 34 rejection cycles with no
+    # cap, since the counter used to reset every time the ticket reached
+    # review at all). Reset only on reaching escalated - a human's
+    # cto_override decision is what grants a genuinely fresh budget.
     retry_count: int = 0
     retry_cap: int = 3
 

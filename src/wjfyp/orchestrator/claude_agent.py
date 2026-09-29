@@ -12,7 +12,7 @@ from wjfyp.models.agent import RoleConfig
 from wjfyp.models.message import AgentRef, HandoffNote, Message, MessageContent, MessageType, TokenCost
 from wjfyp.models.ticket import TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext, AgentResponse
-from wjfyp.orchestrator.fsm import valid_triggers
+from wjfyp.orchestrator.fsm import agent_facing_triggers
 from wjfyp.sandbox.controller import SandboxController
 
 _TOOL_NAME = "declare_outcome"
@@ -46,7 +46,8 @@ _CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
 # affect orchestration, only how the message reads in the feed. Triggers
 # not listed here (tests_passed, tests_failed, retry_cap_exceeded) are
 # always decided deterministically by the orchestrator itself, never by
-# an agent turn (see fsm.py / loop.py's _step_awaiting_test).
+# an agent turn (see fsm.py's agent_facing_triggers and loop.py's
+# _apply_retry_budget/_step_awaiting_test).
 _MESSAGE_TYPE_FOR_TRIGGER: dict[str, MessageType] = {
     "decomposed": MessageType.HANDOFF,
     "spec_ready": MessageType.HANDOFF,
@@ -413,7 +414,9 @@ class ClaudeAgent:
 
     Trigger mechanism confirmed 2026-09-25 (cs3ip-fyp-overview memory):
     a forced tool call whose schema enumerates exactly the triggers
-    valid_triggers() says are legal from the ticket's current status.
+    agent_facing_triggers() says are legal from the ticket's current
+    status for an agent to choose (this excludes the orchestrator-only
+    retry-cap-overflow override - see fsm.agent_facing_triggers, FYP-27).
     The model cannot free-text a trigger, so there is no
     retry-on-malformed-output path to write - `strict: true` on the
     tool definition guarantees the arguments validate exactly against
@@ -455,7 +458,7 @@ class ClaudeAgent:
         self._event_log = event_log
 
     def invoke(self, context: AgentContext) -> AgentResponse:
-        triggers = valid_triggers(context.ticket.status)
+        triggers = agent_facing_triggers(context.ticket.status)
         if not triggers:
             raise ValueError(
                 f"no valid triggers from status {context.ticket.status!r} - "

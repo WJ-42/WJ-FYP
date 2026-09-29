@@ -55,6 +55,14 @@ TRANSITIONS: list[Transition] = [
     Transition(TicketStatus.REVIEW, TicketStatus.DONE, "approved", requires_approval=True),  # this IS the merge
     Transition(TicketStatus.REVIEW, TicketStatus.IN_PROGRESS, "changes_requested", requires_approval=True),
     Transition(TicketStatus.AWAITING_TEST, TicketStatus.ESCALATED, "retry_cap_exceeded"),
+    # Added FYP-27: a CTO that keeps genuinely rejecting resubmitted code
+    # can loop forever exactly like a test that keeps failing, so this
+    # edge needs the same escalation valve as the awaiting_test one. Not
+    # gated by requires_approval - like the awaiting_test escalation,
+    # this is the orchestrator overriding what the CTO proposed once the
+    # shared budget (RETRY_COUNTED_TRIGGERS) runs out, not something a
+    # human or the CTO agent decides.
+    Transition(TicketStatus.REVIEW, TicketStatus.ESCALATED, "retry_cap_exceeded"),
     Transition(TicketStatus.ESCALATED, TicketStatus.IN_PROGRESS, "cto_override", requires_approval=True),
     Transition(TicketStatus.ESCALATED, TicketStatus.HALTED, "cto_cannot_resolve", requires_approval=True),
 ]
@@ -63,11 +71,24 @@ _TRANSITION_INDEX: dict[tuple[TicketStatus, str], Transition] = {
     (t.from_state, t.trigger): t for t in TRANSITIONS
 }
 
-# The retry-counted loop. A `tests_failed` transition increments
-# Ticket.retry_count; once it exceeds Ticket.retry_cap (default 3, see
-# cs3ip-comm-protocol memory) the orchestrator loop fires
-# `retry_cap_exceeded` instead of `tests_failed`.
-RETRY_LOOP_EDGE = (TicketStatus.AWAITING_TEST, TicketStatus.IN_PROGRESS)
+# The orchestrator-only override trigger both retry-counted edges below
+# escalate to once Ticket.retry_cap is exceeded - never something an
+# agent chooses for itself (see agent_facing_triggers()).
+RETRY_OVERFLOW_TRIGGER = "retry_cap_exceeded"
+
+# The retry-counted edges, sharing one budget (Ticket.retry_count /
+# Ticket.retry_cap, default 3, see cs3ip-comm-protocol memory and
+# Ticket's own docstring). Firing either of these triggers increments
+# the shared counter; once it exceeds retry_cap the orchestrator fires
+# RETRY_OVERFLOW_TRIGGER instead, from whichever state the count was
+# exceeded at. Originally only the test-failure edge was counted here
+# (see FYP-19/FYP-25); the review-rejection edge was added in FYP-27
+# after a real run showed it could loop just as unboundedly with no cap
+# of its own.
+RETRY_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
+    (TicketStatus.AWAITING_TEST, "tests_failed"),
+    (TicketStatus.REVIEW, "changes_requested"),
+}
 
 
 def next_state(current: TicketStatus, trigger: str) -> TicketStatus:
@@ -93,6 +114,20 @@ def valid_triggers(status: TicketStatus) -> list[str]:
     2026-09-25, cs3ip-fyp-overview memory's FYP-25 entry).
     """
     return [t.trigger for t in TRANSITIONS if t.from_state == status]
+
+
+def agent_facing_triggers(status: TicketStatus) -> list[str]:
+    """Like valid_triggers(), minus RETRY_OVERFLOW_TRIGGER. Use this (not
+    valid_triggers directly) when building an agent's forced-tool-call
+    schema (see claude_agent.py's ClaudeAgent.invoke) - the overflow
+    trigger is always the orchestrator deciding a shared budget ran out,
+    never a real choice the CTO or engineering agent should be offered.
+    Before FYP-27 this distinction never mattered in practice, since the
+    only state with the overflow trigger (awaiting_test) never invokes an
+    agent at all; adding it to review as well (a state the CTO genuinely
+    is invoked at) made the filter load-bearing.
+    """
+    return [t for t in valid_triggers(status) if t != RETRY_OVERFLOW_TRIGGER]
 
 
 def requires_human_approval(current: TicketStatus, trigger: str) -> bool:

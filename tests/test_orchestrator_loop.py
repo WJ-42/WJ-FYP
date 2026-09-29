@@ -225,6 +225,90 @@ class OrchestratorLoopTest(unittest.TestCase):
         self.assertEqual(result.ticket.status, TicketStatus.HALTED)
         self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
 
+    def test_review_rejection_loop_also_escalates_instead_of_looping_forever(self) -> None:
+        """FYP-27: a real live run found the CTO rejecting resubmitted
+        code at review (changes_requested) was a completely separate,
+        uncounted loop-back edge from the test-failure one above - no
+        cap ever applied to it, and it looped for 34 cycles for real
+        before the process had to be killed by hand. Same shape as
+        test_retry_cap_exceeded_escalates_instead_of_looping_forever,
+        just driven by review rejections instead of failing tests.
+        """
+        ticket = _make_ticket()
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=[
+                "decomposed",
+                "changes_requested",
+                "changes_requested",
+                "changes_requested",
+                "changes_requested",
+                "cto_cannot_resolve",
+            ],
+            product=["spec_ready"],
+            engineering=[
+                "assigned",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+            ],
+        )
+        # Tests pass every attempt - only the CTO's own repeated rejection
+        # is driving the loop here, not test failures.
+        sandbox_factory = _sandbox_factory_with_results(
+            [_test_result(passed=True) for _ in range(4)]
+        )
+
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
+
+        self.assertTrue(not result.advanced)
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
+
+    def test_retry_budget_is_shared_across_both_loop_back_edges(self) -> None:
+        """The actual bug behind FYP-27, not just "review rejection has no
+        cap of its own": retry_count used to reset to 0 the moment a
+        ticket reached review at all, so a ticket that had already used
+        up some of its budget on failed tests got a completely fresh
+        budget for review rejections, and vice versa. Two test failures
+        (budget 2/3) followed by two review rejections (budget 3/3 then
+        4/3) must escalate on that fourth event total, not treat the two
+        edges as independent 3-strike budgets. Under the pre-fix code
+        this exact scripted sequence doesn't reach escalated at all - the
+        engineering agent gets invoked a 5th, unscripted time and its
+        script raises IndexError instead.
+        """
+        ticket = _make_ticket()
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="autonomous")
+        agents = self._agents(
+            cto=["decomposed", "changes_requested", "changes_requested", "cto_cannot_resolve"],
+            product=["spec_ready"],
+            engineering=[
+                "assigned",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+                "code_submission",
+            ],
+        )
+        sandbox_factory = _sandbox_factory_with_results(
+            [
+                _test_result(passed=False),  # retry_count 0 -> 1
+                _test_result(passed=False),  # retry_count 1 -> 2
+                _test_result(passed=True),  # reaches review with budget already at 2/3
+                _test_result(passed=True),  # reaches review again after the first rejection, at 3/3
+            ]
+        )
+
+        result = run(ticket, channel, self.event_log, agents, sandbox_factory, settings)
+
+        self.assertTrue(not result.advanced)
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.retry_count, 0)  # reset on entering escalated
+
     def test_intervention_mode_pauses_and_resume_applies_human_decision(self) -> None:
         ticket = _make_ticket()
         channel = _make_channel(ticket)
