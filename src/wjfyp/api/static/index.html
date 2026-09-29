@@ -519,7 +519,6 @@
   .nav-item:hover { color: var(--text); background: var(--overlay-a); }
   .nav-item.active { background: var(--accent); color: var(--accent-ink); }
   .nav-divider { width: 28px; height: 1px; background: var(--line); margin: 2px auto 0; flex: none; }
-  .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fae6c; }
   .live-dot.down { background: #c1552f; }
 
@@ -875,9 +874,6 @@
         </svg>
       </button>
     </nav>
-    <div class="sidebar-foot">
-      <span class="live-dot" id="sidebar-live-dot"></span>
-    </div>
   </aside>
 
   <main class="main">
@@ -917,7 +913,6 @@
       <div class="kpi-card dark" id="kpi-attention">
         <div class="kpi-head">
           <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>Needs you</span>
-          <span class="live-dot" id="kpi-live-dot"></span>
         </div>
         <div class="kpi-attention-row">
           <div class="kpi-number" id="kpi-attention-number">0<span class="unit" id="kpi-attention-unit">pending</span></div>
@@ -1738,8 +1733,7 @@ document.getElementById("tab-kanban").onclick = () => switchTab("kanban");
 document.getElementById("tab-roles").onclick = () => switchTab("roles");
 
 function setLiveState(connected) {
-  const dots = [document.getElementById("sidebar-live-dot"), document.getElementById("rail-live-dot"), document.getElementById("kpi-live-dot")];
-  dots.forEach(d => d.classList.toggle("down", !connected));
+  document.getElementById("rail-live-dot").classList.toggle("down", !connected);
   document.getElementById("rail-live-text").textContent = connected ? "Connected" : "Reconnecting…";
   document.getElementById("rail-live-sub").textContent = connected
     ? "Streaming the event log as it's written."
