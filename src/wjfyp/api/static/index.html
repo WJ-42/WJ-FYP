@@ -8,36 +8,48 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root {
-    color-scheme: light;
+    color-scheme: dark;
 
-    /* Sage wash the whole app "shell" floats on, and the shell's own
-       light surface - two close, low-contrast neutrals so the shell
-       reads as a raised sheet without needing a shadow to prove it. */
-    --wash: #dce3d9;
-    --surface: #f3f6f1;
-    --surface-raised: #ffffff;
-    --line: #dfe6db;
+    /* Dark olive-black scale, lightest to darkest: wash (page, behind
+       the shell) -> surface (shell) -> surface-raised (cards) is the
+       "elevation gets lighter" direction; surface-sunken breaks that
+       trend on purpose for exactly two elements (the sidebar and the
+       "Needs you" card) so they read as the darkest, most assertive
+       panels on the page, mirroring the role they played in the
+       original light theme. */
+    --wash: #171a12;
+    --surface: #1e2217;
+    --surface-raised: #262b1d;
+    --surface-sunken: #0a0b07;
+    --line: #333a28;
+    --line-strong: #454e37;
 
-    --ink: #0e120d;
-    --ink-soft: #414b42;
-    --muted: #5b665c;
+    --text: #eef1e7;
+    --text-soft: #b9c2af;
+    --muted: #8b9784;
 
     --accent: #d8f24c;
     --accent-ink: #1f2a14;
 
-    /* Tier text colors: darkened from the tier's identity hue so role
-       names/labels clear 4.5:1 on --surface (~#f3f6f1). Verified with a
-       real luminance calc, not eyeballed - see contrast.py from the
-       session that built this. The identity hue itself (tier-N-dot)
-       stays untouched for dots/fills, which aren't text and carry no
-       contrast requirement. */
-    --tier-3: #8a5a0a;
+    /* A light fill used for "assertive" elements that need to pop off
+       a dark surface (active pill, primary buttons, the filled state
+       of a capsule) - paired with --emphasis-text for the dark label
+       that sits on top of it. */
+    --emphasis-fill: #eef1e7;
+    --emphasis-text: #14170f;
+
+    /* Tier colors: on a dark surface the identity hue itself already
+       clears 4.5:1 as text (verified with a real luminance calc, not
+       eyeballed - see contrast_dark2.py from the session that built
+       this), so tier-N and tier-N-dot are the same value here, unlike
+       the light theme where the text variant had to be darkened. */
+    --tier-3: #e2a53a;
     --tier-3-dot: #e2a53a;
-    --tier-2: #6e3fa6;
+    --tier-2: #b083f0;
     --tier-2-dot: #b083f0;
-    --tier-1: #096b7e;
+    --tier-1: #5ec2e0;
     --tier-1-dot: #5ec2e0;
-    --tier-system: #1e7a4b;
+    --tier-system: #4bd08a;
     --tier-system-dot: #4bd08a;
 
     --radius-lg: 28px;
@@ -60,7 +72,7 @@
     margin: 0;
     font-family: var(--font-body);
     background: var(--wash);
-    color: var(--ink);
+    color: var(--text);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
@@ -82,7 +94,7 @@
 
   /* ---------- Sidebar ---------- */
   .sidebar {
-    background: var(--ink);
+    background: var(--surface-sunken);
     border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
@@ -128,7 +140,7 @@
   .view-title .chip {
     display: inline-flex; align-items: center; justify-content: center;
     width: 38px; height: 38px; border-radius: var(--radius-sm);
-    background: var(--surface-raised); border: 1px solid var(--line); color: var(--ink);
+    background: var(--surface-raised); border: 1px solid var(--line); color: var(--text);
   }
   .view-sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 
@@ -140,26 +152,32 @@
     padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
   }
   .kpi-card.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .kpi-card.dark { background: var(--ink); border-color: var(--ink); color: #eef2ea; }
+  .kpi-card.dark { background: var(--surface-sunken); border-color: var(--surface-sunken); color: var(--text); }
   .kpi-head { display: flex; align-items: center; justify-content: space-between; }
   .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: rgba(14,18,13,.06); display: flex; align-items: center; justify-content: center; }
-  .kpi-card.accent .kpi-icon, .kpi-card.dark .kpi-icon { background: rgba(255,255,255,.14); }
-  .kpi-card.accent .kpi-icon svg, .kpi-card.dark .kpi-icon svg { stroke: currentColor; }
+  .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: rgba(255,255,255,.06); display: flex; align-items: center; justify-content: center; }
+  .kpi-card.accent .kpi-icon { background: rgba(14,18,13,.1); }
+  .kpi-card.dark .kpi-icon { background: rgba(255,255,255,.08); }
+  .kpi-card.accent .kpi-icon svg { stroke: var(--accent-ink); }
+  /* Number and its percent badge share a row (not the header): the
+     header only ever holds a short icon+label, so the badge - whose
+     text length varies ("20% done" vs "20% tool activity") - never
+     has to compete with it for width and wrap awkwardly. */
+  .kpi-main-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: nowrap; }
   .kpi-badge {
     font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill);
-    background: rgba(14,18,13,.08);
+    background: rgba(255,255,255,.08); white-space: nowrap; flex: none;
   }
-  .kpi-card.dark .kpi-badge { background: rgba(255,255,255,.14); }
+  .kpi-card.accent .kpi-badge { background: rgba(14,18,13,.1); }
   .kpi-number { font-family: var(--font-display); font-weight: 700; font-size: 40px; line-height: 1; }
   .kpi-number .unit { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--muted); margin-left: 6px; }
   .kpi-card.accent .kpi-number .unit, .kpi-card.dark .kpi-number .unit { color: inherit; opacity: .7; }
   .capsule-row { display: flex; gap: 4px; align-items: center; }
-  .capsule { width: 14px; height: 26px; border-radius: var(--radius-pill); background: var(--ink); flex: none; }
-  .capsule.off { background: none; border: 1.5px dashed rgba(14,18,13,.25); }
+  .capsule { width: 14px; height: 26px; border-radius: var(--radius-pill); background: var(--emphasis-fill); flex: none; }
+  .capsule.off { background: none; border: 1.5px dashed rgba(255,255,255,.22); }
   .kpi-card.accent .capsule { background: var(--accent-ink); }
   .capsule-more { font-size: 11px; color: var(--muted); margin-left: 2px; }
-  .tier-bar { display: flex; height: 8px; border-radius: var(--radius-pill); overflow: hidden; background: rgba(14,18,13,.08); }
+  .tier-bar { display: flex; height: 8px; border-radius: var(--radius-pill); overflow: hidden; background: rgba(14,18,13,.1); }
   .tier-bar span { height: 100%; }
   .kpi-attention-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .kpi-mini-btn {
@@ -167,16 +185,16 @@
     padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .kpi-mini-btn:hover { filter: brightness(1.05); }
-  .kpi-caught-up { font-size: 13px; color: #b9c4b6; }
+  .kpi-caught-up { font-size: 13px; color: var(--text-soft); }
 
   /* Filter pills */
   .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
   .pill {
-    background: var(--surface-raised); border: 1px solid var(--line); color: var(--ink-soft);
+    background: var(--surface-raised); border: 1px solid var(--line); color: var(--text-soft);
     padding: 7px 15px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 500; cursor: pointer;
   }
-  .pill:hover { border-color: #c4cec0; }
-  .pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .pill:hover { border-color: var(--line-strong); }
+  .pill.active { background: var(--emphasis-fill); border-color: var(--emphasis-fill); color: var(--emphasis-text); }
 
   main.view-scroll { flex: 1; overflow: auto; min-height: 0; }
   .view { display: none; }
@@ -200,20 +218,20 @@
   }
   .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
   .msg .role { font-weight: 600; display: inline-flex; align-items: center; text-transform: capitalize; font-family: var(--font-body); }
-  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: var(--ink); }
+  .msg .text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: var(--text); }
   .msg[data-type="tool_call"] .text, .msg[data-type="tool_result"] .text { font-family: var(--font-mono); font-size: 12.5px; }
 
   .text-toggle {
     background: none; border: none; color: var(--tier-1); cursor: pointer; font-size: 12px;
     padding: 4px 0 0; display: block; font-weight: 500;
   }
-  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--ink-soft); font-family: inherit; }
+  .text-rest { margin: 6px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--text-soft); font-family: inherit; }
 
   .logs-toggle {
-    background: var(--surface); border: 1px solid var(--line); color: var(--ink-soft); cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text-soft); cursor: pointer;
     font-size: 11px; padding: 4px 10px; border-radius: var(--radius-pill); margin-top: 8px; font-weight: 500;
   }
-  .logs-toggle:hover { border-color: #c4cec0; }
+  .logs-toggle:hover { border-color: var(--line-strong); }
   .logs-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
   .logs-panel[hidden] { display: none; }
   .logs-panel .msg { padding: 8px 10px; }
@@ -229,20 +247,20 @@
   }
   .card:hover { border-color: var(--tier-1-dot); transform: translateY(-1px); }
   .card .id { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
-  .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--ink-soft); margin-top: 6px; text-transform: capitalize; }
+  .card .assignee { display: flex; align-items: center; font-size: 11px; color: var(--text-soft); margin-top: 6px; text-transform: capitalize; }
   .badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: var(--radius-pill); margin-top: 6px; font-weight: 600; }
   .badge.waiting { background: var(--accent); color: var(--accent-ink); }
-  .badge.decided { background: #dcf3e4; color: var(--tier-system); }
+  .badge.decided { background: rgba(75,208,138,.18); color: var(--tier-system); }
 
   /* Thread modal */
   #modal-backdrop {
-    position: fixed; inset: 0; background: rgba(14,18,13,.45); backdrop-filter: blur(2px);
+    position: fixed; inset: 0; background: rgba(3,4,2,.65); backdrop-filter: blur(2px);
     display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s ease; z-index: 10;
   }
   #modal-backdrop.open { display: flex; opacity: 1; }
   #modal {
     background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); width: 640px; max-height: 80vh;
-    display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(14,18,13,.18);
+    display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,.5);
     transform: scale(.98) translateY(4px); transition: transform .15s ease;
   }
   #modal-backdrop.open #modal { transform: none; }
@@ -253,15 +271,15 @@
   #modal-decision { border-top: 1px solid var(--line); padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
   #modal-decision .prompt { font-size: 12px; color: var(--muted); }
   #modal-decision textarea {
-    width: 100%; min-height: 56px; resize: vertical; background: var(--surface); color: var(--ink);
+    width: 100%; min-height: 56px; resize: vertical; background: var(--surface); color: var(--text);
     border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font-family: inherit; font-size: 13px;
   }
   #modal-decision .buttons { display: flex; gap: 8px; }
   #modal-decision button {
-    background: var(--ink); color: #fff; border: none; border-radius: var(--radius-pill);
+    background: var(--emphasis-fill); color: var(--emphasis-text); border: none; border-radius: var(--radius-pill);
     padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
   }
-  #modal-decision button.secondary { background: none; border: 1px solid var(--line); color: var(--ink); }
+  #modal-decision button.secondary { background: none; border: 1px solid var(--line); color: var(--text); }
   #modal-decision .status { font-size: 12px; color: var(--muted); }
 
   /* Roles */
@@ -274,17 +292,17 @@
   .role-row .meta { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
   .role-row .preset-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 8px; }
   .role-row button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-pill); padding: 5px 12px; cursor: pointer; font-size: 12px; }
-  .role-row button:hover { border-color: #c4cec0; color: var(--ink); }
+  .role-row button:hover { border-color: var(--line-strong); color: var(--text); }
   #role-form { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   #role-form h2 { margin: 0 0 4px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
   #role-form .row { display: flex; gap: 8px; }
   #role-form input {
-    flex: 1; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+    flex: 1; background: var(--surface); color: var(--text); border: 1px solid var(--line);
     border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; font-family: inherit;
   }
   #role-form input:focus, textarea:focus { outline: 2px solid var(--tier-1-dot); outline-offset: 1px; }
-  #role-form button[type="submit"] { align-self: flex-start; background: var(--ink); color: white; border: none; border-radius: var(--radius-pill); padding: 8px 18px; cursor: pointer; font-size: 13px; font-weight: 600; }
-  #role-form .error { color: #b3402c; font-size: 12px; }
+  #role-form button[type="submit"] { align-self: flex-start; background: var(--emphasis-fill); color: var(--emphasis-text); border: none; border-radius: var(--radius-pill); padding: 8px 18px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  #role-form .error { color: #ff7a5c; font-size: 12px; }
 
   /* Right rail */
   .rail { display: flex; flex-direction: column; gap: var(--space-3); overflow: auto; }
@@ -348,18 +366,22 @@
       <div class="kpi-card" id="kpi-tickets">
         <div class="kpi-head">
           <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="10" rx="1.5"/><rect x="16" y="4" width="5" height="13" rx="1.5"/></svg></span>Tickets</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number" id="kpi-tickets-number">0<span class="unit">total</span></div>
           <span class="kpi-badge" id="kpi-tickets-badge">0% done</span>
         </div>
-        <div class="kpi-number" id="kpi-tickets-number">0<span class="unit">total</span></div>
         <div class="capsule-row" id="kpi-tickets-capsules"></div>
       </div>
 
       <div class="kpi-card accent" id="kpi-messages">
         <div class="kpi-head">
           <span class="kpi-label"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px;stroke-width:2"><path d="M4 5h16v11H8l-4 4V5Z"/></svg></span>Messages</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number" id="kpi-messages-number">0<span class="unit">logged</span></div>
           <span class="kpi-badge" id="kpi-messages-badge">0% tool activity</span>
         </div>
-        <div class="kpi-number" id="kpi-messages-number">0<span class="unit">logged</span></div>
         <div class="tier-bar" id="kpi-messages-tierbar"></div>
       </div>
 
