@@ -5,7 +5,7 @@
 <title>WJ-FYP Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;500;600&family=Cascadia+Code:wght@400;500;600&display=swap" rel="stylesheet" />
 <script>
   // Applied before the stylesheet paints anything, straight from
   // localStorage, so a returning viewer's theme/font/accessibility
@@ -13,12 +13,17 @@
   // localStorage can throw (private browsing, storage disabled) and
   // none of these are essential to the page working.
   (function () {
+    // Kept in sync by hand with the VALID_THEMES/VALID_FONTS lists in
+    // the main <script> at the bottom of the page - this copy exists
+    // only so it can run before that script (and the stylesheet) load.
+    var VALID_THEMES = ["dark", "light", "tokyo-night", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+    var VALID_FONTS = ["accessible", "jetbrains", "cascadia"];
     try {
       var root = document.documentElement;
       var theme = localStorage.getItem("wjfyp.settings.theme");
-      if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+      if (VALID_THEMES.indexOf(theme) !== -1) root.dataset.theme = theme;
       var font = localStorage.getItem("wjfyp.settings.font");
-      if (font === "mono" || font === "accessible") root.dataset.font = font;
+      if (VALID_FONTS.indexOf(font) !== -1) root.dataset.font = font;
       var textSize = localStorage.getItem("wjfyp.settings.textSize");
       if (textSize === "sm" || textSize === "lg") root.dataset.textsize = textSize;
       if (localStorage.getItem("wjfyp.settings.reduceMotion") === "1") root.dataset.reduceMotion = "1";
@@ -95,13 +100,27 @@
     --font-body: "Hanken Grotesk", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --text-scale: 1;
+
+    /* Subtle fill/border overlays (icon chips, badge backgrounds, a
+       capsule's unfilled dashed state) need a light tint on a dark
+       surface and a dark tint on a light one. Themed via variables
+       rather than a per-theme override block for each of the 3 rules
+       that use them, so a new theme only has to set these once. */
+    --overlay-a: rgba(255,255,255,.06);
+    --overlay-b: rgba(255,255,255,.08);
+    --overlay-c: rgba(255,255,255,.22);
   }
 
-  /* Light theme - the palette the dashboard shipped with originally,
-     kept as an alternate rather than deleted, plus the handful of
-     overlay rules that were tuned specifically for a dark surface
-     (kpi-icon/kpi-badge/capsule.off's default state, the modal scrim
-     and shadow) and need the opposite tint on a light one. */
+  /* Themes. "dark" (the :root defaults above) and "light" are this
+     dashboard's own native pair; the rest are drawn from Omarchy's
+     shipped theme catalog (/usr/share/omarchy/themes/<name>/colors.toml
+     on an Omarchy install) - same neutral/accent/tier-color roles,
+     values pulled from each theme's real palette rather than
+     approximated, and re-derived where the source ANSI color didn't
+     clear 4.5:1 as UI text (a terminal-tuned "yellow" or "magenta" can
+     look fine on a comment line and still fail as a label here) - see
+     gen_themes2.py from the session that built this for the actual
+     derivation. */
   :root[data-theme="light"] {
     color-scheme: light;
     --wash: #dce3d9;
@@ -115,16 +134,239 @@
     --muted: #5b665c;
     --emphasis-fill: #0e120d;
     --emphasis-text: #ffffff;
+    --sunken-text: #eef1e7;
+    --sunken-text-soft: #b9c2af;
     --tier-3: #8a5a0a;
     --tier-2: #6e3fa6;
     --tier-1: #096b7e;
     --tier-system: #1e7a4b;
+    --overlay-a: rgba(14,18,13,.06);
+    --overlay-b: rgba(14,18,13,.08);
+    --overlay-c: rgba(14,18,13,.25);
   }
-  :root[data-theme="light"] .kpi-icon { background: rgba(14,18,13,.06); }
-  :root[data-theme="light"] .kpi-badge { background: rgba(14,18,13,.08); }
-  :root[data-theme="light"] .capsule.off { border-color: rgba(14,18,13,.25); }
-  :root[data-theme="light"] #modal-backdrop, :root[data-theme="light"] #settings-backdrop { background: rgba(14,18,13,.45); }
-  :root[data-theme="light"] #modal, :root[data-theme="light"] #settings-modal { box-shadow: 0 24px 60px rgba(14,18,13,.18); }
+
+  :root[data-theme="tokyo-night"] {
+    color-scheme: dark;
+    --wash: #0e0e14;
+    --surface: #13141c;
+    --surface-raised: #1a1b26;
+    --surface-sunken: #08080b;
+    --line: #292e42;
+    --line-strong: #414868;
+    --text: #c0caf5;
+    --text-soft: #b4bee6;
+    --muted: #a9b1d6;
+    --accent: #7aa2f7;
+    --accent-ink: #14170f;
+    --emphasis-fill: #c0caf5;
+    --emphasis-text: #08080b;
+    --sunken-text: #c0caf5;
+    --sunken-text-soft: #b4bee6;
+    --tier-3: #e0af68;
+    --tier-3-dot: #e0af68;
+    --tier-2: #ad8ee6;
+    --tier-2-dot: #ad8ee6;
+    --tier-1: #7aa2f7;
+    --tier-1-dot: #7aa2f7;
+    --tier-system: #9ece6a;
+    --tier-system-dot: #9ece6a;
+  }
+
+  :root[data-theme="catppuccin"] {
+    color-scheme: dark;
+    --wash: #101019;
+    --surface: #161622;
+    --surface-raised: #1e1e2e;
+    --surface-sunken: #09090e;
+    --line: #45475a;
+    --line-strong: #585b70;
+    --text: #cdd6f4;
+    --text-soft: #bac2de;
+    --muted: #878a9e;
+    --accent: #89b4fa;
+    --accent-ink: #14170f;
+    --emphasis-fill: #cdd6f4;
+    --emphasis-text: #09090e;
+    --sunken-text: #cdd6f4;
+    --sunken-text-soft: #bac2de;
+    --tier-3: #f9e2af;
+    --tier-3-dot: #f9e2af;
+    --tier-2: #f5c2e7;
+    --tier-2-dot: #f5c2e7;
+    --tier-1: #89b4fa;
+    --tier-1-dot: #89b4fa;
+    --tier-system: #a6e3a1;
+    --tier-system-dot: #a6e3a1;
+  }
+
+  :root[data-theme="nord"] {
+    color-scheme: dark;
+    --wash: #191c23;
+    --surface: #222730;
+    --surface-raised: #2e3440;
+    --surface-sunken: #0e0f13;
+    --line: #434c5e;
+    --line-strong: #4c566a;
+    --text: #d8dee9;
+    --text-soft: #adb5c4;
+    --muted: #969eac;
+    --accent: #81a1c1;
+    --accent-ink: #14170f;
+    --emphasis-fill: #d8dee9;
+    --emphasis-text: #0e0f13;
+    --sunken-text: #d8dee9;
+    --sunken-text-soft: #adb5c4;
+    --tier-3: #ebcb8b;
+    --tier-3-dot: #ebcb8b;
+    --tier-2: #b894b1;
+    --tier-2-dot: #b48ead;
+    --tier-1: #81a1c1;
+    --tier-1-dot: #81a1c1;
+    --tier-system: #a3be8c;
+    --tier-system-dot: #a3be8c;
+  }
+
+  :root[data-theme="gruvbox"] {
+    color-scheme: dark;
+    --wash: #161616;
+    --surface: #1e1e1e;
+    --surface-raised: #282828;
+    --surface-sunken: #0c0c0c;
+    --line: #504945;
+    --line-strong: #665c54;
+    --text: #d4be98;
+    --text-soft: #bdae93;
+    --muted: #9b8e83;
+    --accent: #7daea3;
+    --accent-ink: #14170f;
+    --emphasis-fill: #d4be98;
+    --emphasis-text: #0c0c0c;
+    --sunken-text: #d4be98;
+    --sunken-text-soft: #bdae93;
+    --tier-3: #d8a657;
+    --tier-3-dot: #d8a657;
+    --tier-2: #d3869b;
+    --tier-2-dot: #d3869b;
+    --tier-1: #7daea3;
+    --tier-1-dot: #7daea3;
+    --tier-system: #a9b665;
+    --tier-system-dot: #a9b665;
+  }
+
+  :root[data-theme="everforest"] {
+    color-scheme: dark;
+    --wash: #181d20;
+    --surface: #21272c;
+    --surface-raised: #2d353b;
+    --surface-sunken: #0d1012;
+    --line: #3d484d;
+    --line-strong: #475258;
+    --text: #d3c6aa;
+    --text-soft: #a8b3ab;
+    --muted: #95a0a6;
+    --accent: #7fbbb3;
+    --accent-ink: #14170f;
+    --emphasis-fill: #d3c6aa;
+    --emphasis-text: #0d1012;
+    --sunken-text: #d3c6aa;
+    --sunken-text-soft: #a8b3ab;
+    --tier-3: #dbbc7f;
+    --tier-3-dot: #dbbc7f;
+    --tier-2: #d699b6;
+    --tier-2-dot: #d699b6;
+    --tier-1: #7fbbb3;
+    --tier-1-dot: #7fbbb3;
+    --tier-system: #a7c080;
+    --tier-system-dot: #a7c080;
+  }
+
+  :root[data-theme="rose-pine"] {
+    color-scheme: light;
+    --wash: #e1dbd5;
+    --surface: #ede7e1;
+    --surface-raised: #f2e9e1;
+    --surface-sunken: #575279;
+    --line: #dfdad9;
+    --line-strong: #cecacd;
+    --text: #4a4667;
+    --text-soft: #5b586f;
+    --muted: #6a6478;
+    --accent: #56949f;
+    --accent-ink: #14170f;
+    --emphasis-fill: #4a4667;
+    --emphasis-text: #faf4ed;
+    --sunken-text: #faf4ed;
+    --sunken-text-soft: #f2e9e1;
+    --tier-3: #8b560e;
+    --tier-3-dot: #ea9d34;
+    --tier-2: #715a8c;
+    --tier-2-dot: #907aa9;
+    --tier-1: #3d6971;
+    --tier-1-dot: #56949f;
+    --tier-system: #286983;
+    --tier-system-dot: #286983;
+    --overlay-a: rgba(20,23,15,.06);
+    --overlay-b: rgba(20,23,15,.08);
+    --overlay-c: rgba(20,23,15,.25);
+  }
+
+  :root[data-theme="catppuccin-latte"] {
+    color-scheme: light;
+    --wash: #d7d8dc;
+    --surface: #e3e4e8;
+    --surface-raised: #dce0e8;
+    --surface-sunken: #4c4f69;
+    --line: #ccd0da;
+    --line-strong: #acb0be;
+    --text: #3f4257;
+    --text-soft: #4f5166;
+    --muted: #585d6f;
+    --accent: #1e66f5;
+    --accent-ink: #ffffff;
+    --emphasis-fill: #3f4257;
+    --emphasis-text: #eff1f5;
+    --sunken-text: #eff1f5;
+    --sunken-text-soft: #dce0e8;
+    --tier-3: #855511;
+    --tier-3-dot: #df8e1d;
+    --tier-2: #ad1a86;
+    --tier-2-dot: #ea76cb;
+    --tier-1: #0a52e0;
+    --tier-1-dot: #1e66f5;
+    --tier-system: #2d701e;
+    --tier-system-dot: #40a02b;
+    --overlay-a: rgba(20,23,15,.06);
+    --overlay-b: rgba(20,23,15,.08);
+    --overlay-c: rgba(20,23,15,.25);
+  }
+
+  :root[data-theme="matte-black"] {
+    color-scheme: dark;
+    --wash: #090909;
+    --surface: #0d0d0d;
+    --surface-raised: #121212;
+    --surface-sunken: #050505;
+    --line: #2a2a2a;
+    --line-strong: #333333;
+    --text: #bebebe;
+    --text-soft: #8f8f92;
+    --muted: #7e7e7e;
+    --accent: #e68e0d;
+    --accent-ink: #14170f;
+    --emphasis-fill: #bebebe;
+    --emphasis-text: #050505;
+    --sunken-text: #bebebe;
+    --sunken-text-soft: #8f8f92;
+    --tier-3: #e34444;
+    --tier-3-dot: #b91c1c;
+    --tier-2: #D35F5F;
+    --tier-2-dot: #D35F5F;
+    --tier-1: #e68e0d;
+    --tier-1-dot: #e68e0d;
+    --tier-system: #FFC107;
+    --tier-system-dot: #FFC107;
+  }
+
 
   /* High contrast: pushes borders and secondary/tertiary text further
      from the background than the default palette's calmer values,
@@ -141,8 +383,9 @@
      switches body text to Atkinson Hyperlegible, a typeface designed
      by the Braille Institute specifically to keep easily-confused
      letterforms (I/l/1, etc.) visually distinct at small sizes. */
-  :root[data-font="mono"] { --font-body: var(--font-mono); }
   :root[data-font="accessible"] { --font-body: "Atkinson Hyperlegible", system-ui, sans-serif; }
+  :root[data-font="jetbrains"] { --font-body: "JetBrains Mono", var(--font-mono), ui-monospace, monospace; }
+  :root[data-font="cascadia"] { --font-body: "Cascadia Code", var(--font-mono), ui-monospace, monospace; }
 
   /* Text size only scales actual reading content (message bodies,
      card titles, role descriptions) - not chrome like nav, labels, or
@@ -248,7 +491,7 @@
   .kpi-card.dark { background: var(--surface-sunken); border-color: var(--surface-sunken); color: var(--sunken-text); }
   .kpi-head { display: flex; align-items: center; justify-content: space-between; }
   .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: rgba(255,255,255,.06); display: flex; align-items: center; justify-content: center; }
+  .kpi-icon { width: 28px; height: 28px; border-radius: 9px; background: var(--overlay-a); display: flex; align-items: center; justify-content: center; }
   .kpi-card.accent .kpi-icon { background: rgba(14,18,13,.1); }
   .kpi-card.dark .kpi-icon { background: rgba(255,255,255,.08); }
   .kpi-card.accent .kpi-icon svg { stroke: var(--accent-ink); }
@@ -259,7 +502,7 @@
   .kpi-main-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: nowrap; }
   .kpi-badge {
     font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill);
-    background: rgba(255,255,255,.08); white-space: nowrap; flex: none;
+    background: var(--overlay-b); white-space: nowrap; flex: none;
   }
   .kpi-card.accent .kpi-badge { background: rgba(14,18,13,.1); }
   .kpi-number { font-family: var(--font-display); font-weight: 700; font-size: 40px; line-height: 1; }
@@ -267,7 +510,7 @@
   .kpi-card.accent .kpi-number .unit, .kpi-card.dark .kpi-number .unit { color: inherit; opacity: .7; }
   .capsule-row { display: flex; gap: 4px; align-items: center; }
   .capsule { width: 14px; height: 26px; border-radius: var(--radius-pill); background: var(--emphasis-fill); flex: none; }
-  .capsule.off { background: none; border: 1.5px dashed rgba(255,255,255,.22); }
+  .capsule.off { background: none; border: 1.5px dashed var(--overlay-c); }
   .kpi-card.accent .capsule { background: var(--accent-ink); }
   .capsule-more { font-size: 11px; color: var(--muted); margin-left: 2px; }
   .tier-bar { display: flex; height: 8px; border-radius: var(--radius-pill); overflow: hidden; background: rgba(14,18,13,.1); }
@@ -443,6 +686,8 @@
   .settings-section h3 { margin: 0 0 3px; font-size: 14px; font-family: var(--font-display); font-weight: 700; }
   .settings-section .hint { margin: 0 0 12px; font-size: 12px; color: var(--muted); }
   .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .settings-row.stack { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .settings-row.stack .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .settings-row .label { font-size: 13px; font-weight: 500; }
   .settings-row .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .settings-pills { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -548,7 +793,20 @@
       </button>
       <div class="nav-divider"></div>
       <button id="open-settings" class="nav-item" title="Settings" aria-label="Settings">
-        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10.6a1.7 1.7 0 0 0 1-1.55V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10.6a1.7 1.7 0 0 0 1.55 1H19.5a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>
+        <svg class="icon" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" stroke="currentColor"/>
+          <circle cx="12" cy="12" r="7" stroke="currentColor"/>
+          <g fill="currentColor" stroke="none">
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(0 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(45 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(90 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(135 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(180 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(225 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(270 12 12)"/>
+            <rect x="10.9" y="3" width="2.2" height="2.6" rx="0.5" transform="rotate(315 12 12)"/>
+          </g>
+        </svg>
       </button>
     </nav>
     <div class="sidebar-foot">
@@ -679,27 +937,38 @@
       <section class="settings-section">
         <h3>Appearance</h3>
         <p class="hint">How the dashboard looks on this device.</p>
-        <div class="settings-row">
+        <div class="settings-row stack">
           <span class="label">Theme</span>
           <div class="settings-pills" data-setting="theme">
             <button class="pill" data-value="dark">Dark</button>
             <button class="pill" data-value="light">Light</button>
+            <button class="pill" data-value="tokyo-night">Tokyo Night</button>
+            <button class="pill" data-value="catppuccin">Catppuccin</button>
+            <button class="pill" data-value="catppuccin-latte">Catppuccin Latte</button>
+            <button class="pill" data-value="nord">Nord</button>
+            <button class="pill" data-value="gruvbox">Gruvbox</button>
+            <button class="pill" data-value="everforest">Everforest</button>
+            <button class="pill" data-value="rose-pine">Rosé Pine</button>
+            <button class="pill" data-value="matte-black">Matte Black</button>
           </div>
+          <p class="settings-local-note" style="margin-top:0;">Ported from Omarchy's shipped themes.</p>
         </div>
-        <div class="settings-row">
+        <div class="settings-row stack">
           <span class="label">Font</span>
           <div class="settings-pills" data-setting="font">
             <button class="pill" data-value="default">Default</button>
             <button class="pill" data-value="accessible">Accessible</button>
-            <button class="pill" data-value="mono">Monospace</button>
+            <button class="pill" data-value="jetbrains">JetBrains Mono</button>
+            <button class="pill" data-value="cascadia">Cascadia Code</button>
           </div>
+          <p class="settings-local-note" style="margin-top:0;">JetBrains Mono and Cascadia Code are Omarchy's own terminal font choices.</p>
         </div>
-        <div class="settings-row">
-          <span class="label">Text size</span>
+        <div class="settings-row stack">
+          <span class="label">Density</span>
           <div class="settings-pills" data-setting="textSize">
-            <button class="pill" data-value="sm">Small</button>
-            <button class="pill" data-value="md">Default</button>
-            <button class="pill" data-value="lg">Large</button>
+            <button class="pill" data-value="sm">Compact</button>
+            <button class="pill" data-value="md">Minimal</button>
+            <button class="pill" data-value="lg">Maximal</button>
           </div>
         </div>
       </section>
@@ -1457,12 +1726,20 @@ else switchTab("feed");
 // system to authenticate against, and the settings panel says so.
 const root = document.documentElement;
 
+// "dark" and "light" are this dashboard's own native theme pair; the
+// rest are ported from Omarchy's shipped theme catalog (see the CSS
+// comment above :root[data-theme="light"] for where the values come
+// from). Kept in sync by hand with the VALID_THEMES copy in the early
+// <head> script.
+const VALID_THEMES = ["dark", "light", "tokyo-night", "catppuccin", "catppuccin-latte", "nord", "gruvbox", "everforest", "rose-pine", "matte-black"];
+const VALID_FONTS = ["accessible", "jetbrains", "cascadia"];
+
 function applyTheme(value) {
-  root.dataset.theme = value === "light" ? "light" : "dark";
+  root.dataset.theme = VALID_THEMES.includes(value) ? value : "dark";
   try { localStorage.setItem("wjfyp.settings.theme", value); } catch {}
 }
 function applyFont(value) {
-  if (value === "mono" || value === "accessible") root.dataset.font = value;
+  if (VALID_FONTS.includes(value)) root.dataset.font = value;
   else delete root.dataset.font;
   try { localStorage.setItem("wjfyp.settings.font", value); } catch {}
 }
