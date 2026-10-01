@@ -1,13 +1,12 @@
 // Entry point. Builds the stage, drops the office and its occupants into it,
-// wires the few keyboard affordances, and starts the frame loop.
+// wires the panel and the keyboard, and starts the frame loop.
 //
-// Layers register their own per-frame updates through stage.onFrame(), so this
-// file stays a thin wiring sheet. Layer 3 adds the nav grid and the locomotion
-// controller, plus the debug overlays and URL parameters used to verify them.
-//
-// The gather/disperse keys here are a test harness, not a scenario: Layer 5
-// owns scripted choreography and playback controls. These exist only so a walk
-// can be triggered and watched without one.
+// Layers register their work through stage.onFrame(), so this file stays a
+// wiring sheet. The one piece of real logic here is the frame loop itself:
+// every per-frame update is multiplied by the player's time scale, so changing
+// the playback speed changes how fast people walk, not just how fast the script
+// fires, and pausing freezes the office mid-stride rather than leaving everyone
+// walking about with the script stopped.
 
 import { createStage } from './scene.js';
 import { buildOffice } from './build.js';
@@ -15,8 +14,10 @@ import { spawnAgents, setLabelsVisible } from './agents.js';
 import { setBadgesVisible } from './characters.js';
 import { buildNav, buildNavOverlay, createPathOverlay } from './nav.js';
 import { createLocomotion } from './locomotion.js';
-import { createBehaviour, BOARD_PLACES, HOME } from './behaviour.js';
+import { createBehaviour, HOME } from './behaviour.js';
 import { createTicket } from './tickets.js';
+import { SCENARIOS } from './scenarios.js';
+import { createPlayer, SPEEDS } from './player.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -28,7 +29,7 @@ stage.scene.add(office);
 
 const { agents, byId } = spawnAgents(stage.scene);
 
-// --- Layer 3: navigation --------------------------------------------------
+// --- Navigation (Layer 3) --------------------------------------------------
 // Built after the office, because the obstacle footprints come from the
 // geometry that buildOffice() actually produced.
 const nav = buildNav(office);
@@ -40,7 +41,109 @@ const pathOverlay = createPathOverlay();
 stage.scene.add(pathOverlay.group);
 
 const loco = createLocomotion(agents, nav, { pathOverlay });
-stage.onFrame((dt) => loco.update(dt));
+
+// --- Behaviour (Layer 4) ---------------------------------------------------
+// A factory rather than one ticket: restarting a scenario needs a ticket with
+// its budgets back at zero, not the one the last run exhausted.
+const makeTicket = () =>
+  createTicket({
+    id: params.get('ticket') || 'FYP-42',
+    title: 'Demonstration ticket',
+    assignee: params.get('assignee') || 'engineering-2',
+  });
+
+const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene });
+bhv.setTicket(makeTicket());
+
+// --- Scenarios (Layer 5) ---------------------------------------------------
+const player = createPlayer({ bhv, loco, makeTicket, onChange: renderPanel });
+
+// ?restartAt=n presses Restart n seconds in, so the reset path can be checked
+// headlessly like everything else. Measured in unscaled time, independent of
+// the playback speed, so the moment it fires does not move when the speed does.
+const restartAt = Number(params.get('restartAt')) || 0;
+let sinceLoad = 0;
+let hasRestarted = false;
+
+stage.onFrame((dt) => {
+  if (restartAt > 0 && !hasRestarted) {
+    sinceLoad += dt;
+    if (sinceLoad >= restartAt) {
+      hasRestarted = true;
+      player.restart();
+    }
+  }
+
+  const scaled = dt * player.timeScale();
+  loco.update(scaled);
+  bhv.update(scaled);
+  player.update(scaled);
+  updateProgress();
+});
+
+// --- Panel -----------------------------------------------------------------
+
+const el = {
+  list: document.getElementById('scenario-list'),
+  speeds: document.getElementById('speeds'),
+  play: document.getElementById('btn-play'),
+  restart: document.getElementById('btn-restart'),
+  bar: document.getElementById('scenario-bar'),
+  name: document.getElementById('scenario-name'),
+  time: document.getElementById('scenario-time'),
+  note: document.getElementById('scenario-note'),
+};
+
+for (const scenario of SCENARIOS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = scenario.name;
+  button.title = scenario.summary;
+  button.dataset.id = scenario.id;
+  button.setAttribute('aria-pressed', 'false');
+  button.addEventListener('click', () => player.load(scenario.id));
+  el.list.appendChild(button);
+}
+
+for (const value of SPEEDS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = `${value}×`;
+  button.dataset.speed = String(value);
+  button.setAttribute('aria-pressed', 'false');
+  button.addEventListener('click', () => player.setSpeed(value));
+  el.speeds.appendChild(button);
+}
+
+el.play.addEventListener('click', () => player.togglePaused());
+el.restart.addEventListener('click', () => player.restart());
+
+function clock(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function renderPanel(state) {
+  for (const button of el.list.children) {
+    button.setAttribute('aria-pressed', String(button.dataset.id === state.id));
+  }
+  for (const button of el.speeds.children) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.speed) === state.speed));
+  }
+  el.play.textContent = state.paused ? 'Play' : 'Pause';
+  el.play.setAttribute('aria-pressed', String(state.paused));
+  el.name.textContent = state.name ?? '—';
+  el.note.textContent = state.note || 'Pick a scenario to play it.';
+}
+
+function updateProgress() {
+  const state = player.state();
+  el.bar.style.width = `${(state.progress * 100).toFixed(1)}%`;
+  el.time.textContent = `${clock(state.elapsed)} / ${clock(state.duration)}`;
+}
+
+// --- Debug overlays and URL parameters -------------------------------------
 
 function sendAll(places) {
   for (const [id, station] of Object.entries(places)) {
@@ -48,114 +151,12 @@ function sendAll(places) {
   }
 }
 
-// --- Layer 4: behaviour ---------------------------------------------------
-const ticket = createTicket({
-  id: params.get('ticket') || 'FYP-42',
-  title: 'Demonstration ticket',
-  assignee: params.get('assignee') || 'engineering-2',
-});
-
-const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene });
-stage.onFrame((dt) => bhv.update(dt));
-bhv.setTicket(ticket);
-
-// A timed driver for exercising this layer, not a scenario library: Layer 5
-// owns those, along with playback controls and the choreography to go with
-// them. These exist so each failure path can be triggered and watched now.
-//
-// The paths are the orchestrator's real ones. `escalation` fails the tests four
-// times against a cap of three, so the fourth is overridden by the system into
-// retry_cap_exceeded rather than another retry — which is the behaviour the
-// shared correction budget exists to produce.
-const DEMOS = {
-  happy: [
-    [0.4, () => bhv.summonToBoard()],
-    [10, () => bhv.fire('decomposed')],
-    [16, () => bhv.fire('spec_ready')],
-    [21, () => bhv.fire('assigned')],
-    [27, () => bhv.fire('code_submission')],
-    [31, () => bhv.fire('tests_passed')],
-    [37, () => bhv.fire('approved')],
-  ],
-  retry: [
-    [0.4, () => bhv.fire('decomposed')],
-    [1, () => bhv.fire('spec_ready')],
-    [2, () => bhv.fire('assigned')],
-    [8, () => bhv.fire('code_submission')],
-    [12, () => bhv.fire('tests_failed')],
-    [20, () => bhv.fire('code_submission')],
-    [24, () => bhv.fire('tests_failed')],
-    [32, () => bhv.fire('code_submission')],
-    [36, () => bhv.fire('tests_passed')],
-  ],
-  timeout: [
-    [0.4, () => bhv.fire('decomposed')],
-    [1, () => bhv.fire('spec_ready')],
-    [2, () => bhv.fire('assigned')],
-    [8, () => bhv.fire('code_submission')],
-    // A sandbox test run that never comes back. When the timer runs out the
-    // orchestrator's own failure edge takes over.
-    [10, () => bhv.block(ticket.assignee, 9, 'tests_failed')],
-  ],
-  escalation: [
-    [0.4, () => bhv.fire('decomposed')],
-    [1, () => bhv.fire('spec_ready')],
-    [2, () => bhv.fire('assigned')],
-    [6, () => bhv.fire('code_submission')],
-    [9, () => bhv.fire('tests_failed')],
-    [13, () => bhv.fire('code_submission')],
-    [16, () => bhv.fire('tests_failed')],
-    [20, () => bhv.fire('code_submission')],
-    [23, () => bhv.fire('tests_failed')],
-    [27, () => bhv.fire('code_submission')],
-    [30, () => bhv.fire('tests_failed')], // budget gone: becomes retry_cap_exceeded
-  ],
-  halt: [
-    [0.4, () => bhv.fire('decomposed')],
-    [1, () => bhv.fire('spec_ready')],
-    [2, () => bhv.fire('assigned')],
-    [4, () => bhv.fire('code_submission')],
-    [6, () => bhv.fire('tests_failed')],
-    [8, () => bhv.fire('code_submission')],
-    [10, () => bhv.fire('tests_failed')],
-    [12, () => bhv.fire('code_submission')],
-    [14, () => bhv.fire('tests_failed')],
-    [16, () => bhv.fire('code_submission')],
-    [18, () => bhv.fire('tests_failed')], // -> escalated
-    [26, () => bhv.fire('cto_cannot_resolve')], // -> halted, walked to the backlog
-  ],
-};
-
-let demoSteps = null;
-let demoAt = 0;
-let demoClock = 0;
-
-function startDemo(name) {
-  const steps = DEMOS[name];
-  if (!steps) {
-    console.warn(`main: no demo named "${name}"`);
-    return;
-  }
-  demoSteps = steps;
-  demoAt = 0;
-  demoClock = 0;
-}
-
-stage.onFrame((dt) => {
-  if (!demoSteps) return;
-  demoClock += dt;
-  while (demoAt < demoSteps.length && demoSteps[demoAt][0] <= demoClock) {
-    demoSteps[demoAt][1]();
-    demoAt += 1;
-  }
-});
-
 const markers = office.getObjectByName('stationMarkers');
 let labelsVisible = true;
 let badgesVisible = true;
 
 // ?anchors=1 shows the station rings on load — handy when checking that the
-// anchors Layers 2-5 depend on actually land on chairs and doorways.
+// anchors the later layers depend on actually land on chairs and doorways.
 if (params.get('anchors') === '1') {
   markers.visible = true;
   document.getElementById('hint-anchors').classList.add('on');
@@ -166,6 +167,13 @@ if (params.get('labels') === '0') {
   labelsVisible = false;
   setLabelsVisible(agents, false);
   document.getElementById('hint-labels').classList.add('off');
+}
+
+// ?badges=0 hides the activity badges.
+if (params.get('badges') === '0') {
+  badgesVisible = false;
+  setBadgesVisible(agents, false);
+  document.getElementById('hint-badges').classList.add('off');
 }
 
 // ?nav=1 draws every blocked cell of the nav grid. This is the quickest way to
@@ -182,21 +190,21 @@ if (params.get('paths') === '1') {
   document.getElementById('hint-paths').classList.add('on');
 }
 
-// ?goto=cto-1:board_present;engineering-2:coffee sends agents somewhere on load.
-// ?goto=board and ?goto=home are shorthands for the two full-office moves.
-// ?badges=0 hides the activity badges, for a cleaner shot of the room.
-if (params.get('badges') === '0') {
-  setBadgesVisible(agents, false);
-  document.getElementById('hint-badges').classList.add('off');
-}
+// ?speed=n and ?paused=1 set the transport up before anything starts, which is
+// what a still capture of a particular moment needs.
+if (params.get('speed')) player.setSpeed(Number(params.get('speed')));
 
-// ?demo=happy|retry|timeout|escalation|halt runs one of the Layer 4 paths.
-if (params.get('demo')) startDemo(params.get('demo'));
+// ?scenario=id plays one on load. ?demo= is accepted as well, because that is
+// what Layer 4 called it before the library existed.
+const wanted = params.get('scenario') || params.get('demo');
+if (wanted) player.load(wanted);
 
+if (params.get('paused') === '1') player.setPaused(true);
+
+// ?goto=cto-1:board_present;engineering-2:coffee drives locomotion directly,
+// bypassing the behaviour model. Kept for checking routing in isolation.
 const goto = params.get('goto');
-if (goto === 'board') {
-  sendAll(BOARD_PLACES);
-} else if (goto === 'home') {
+if (goto === 'home') {
   sendAll(HOME);
 } else if (goto) {
   for (const pair of goto.split(';')) {
@@ -216,8 +224,14 @@ if (focus) {
   stage.focusOn(stage.controls.target.x, stage.controls.target.z, Number(params.get('zoom')));
 }
 
+renderPanel(player.state());
+updateProgress();
+
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  // Space and Enter belong to whichever button has focus, not to the office.
+  if (e.target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return;
+
   const key = e.key.toLowerCase();
 
   if (key === 'r') {
@@ -239,12 +253,18 @@ window.addEventListener('keydown', (e) => {
     badgesVisible = !badgesVisible;
     setBadgesVisible(agents, badgesVisible);
     document.getElementById('hint-badges').classList.toggle('off', !badgesVisible);
-  } else if (key === '1') {
-    bhv.summonToBoard();
-  } else if (key === '0') {
-    bhv.disperse();
-  } else if (key >= '2' && key <= '6') {
-    startDemo(['happy', 'retry', 'timeout', 'escalation', 'halt'][Number(key) - 2]);
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    player.togglePaused();
+  } else if (e.key === 'Enter') {
+    player.restart();
+  } else if (e.key === '-') {
+    player.nudgeSpeed(-1);
+  } else if (e.key === '=' || e.key === '+') {
+    player.nudgeSpeed(1);
+  } else if (key >= '1' && key <= '9') {
+    const scenario = SCENARIOS[Number(key) - 1];
+    if (scenario) player.load(scenario.id);
   }
 });
 
@@ -274,10 +294,12 @@ if (still) {
       shot.dataset.png = stage.renderer.domElement.toDataURL('image/png');
       document.body.appendChild(shot);
 
-      const el = document.createElement('pre');
-      el.id = 'diag';
-      el.style.display = 'none'; // read via --dump-dom, never shown
-      el.textContent = JSON.stringify({
+      const diag = document.createElement('pre');
+      diag.id = 'diag';
+      diag.style.display = 'none'; // read via --dump-dom, never shown
+      const ticket = bhv.ticket;
+      const p = player.state();
+      diag.textContent = JSON.stringify({
         sceneChildren: stage.scene.children.length,
         agents: agents.length,
         calls: stage.renderer.info.render.calls,
@@ -285,8 +307,6 @@ if (still) {
         canvas: [stage.renderer.domElement.width, stage.renderer.domElement.height],
         cam: stage.camera.position.toArray().map((n) => +n.toFixed(2)),
         zoom: stage.camera.zoom,
-        frustum: [stage.camera.left, stage.camera.right, stage.camera.top, stage.camera.bottom],
-        // Layer 3: enough state to check routing without reading the picture.
         t,
         navCells: [nav.nx, nav.nz],
         navBlocked: nav.blockedCount,
@@ -294,26 +314,33 @@ if (still) {
         who: agents.map((a) => ({
           id: a.id,
           at: [+a.root.position.x.toFixed(2), +a.root.position.z.toFixed(2)],
-          yaw: +a.root.rotation.y.toFixed(2),
           pose: a.pose,
           mode: loco.modeOf(a.id),
           station: loco.stationOf(a.id),
-          // Layer 4: what the office thinks each agent is doing.
           activity: bhv.stateOf(a.id)?.activity ?? null,
           badge: a.badgeText,
           carrying: a.isCarrying,
           timer: a.timerBar.visible ? +a.timerBar.userData.drawn.toFixed(2) : null,
         })),
-        ticket: {
+        ticket: ticket && {
           id: ticket.id,
           status: ticket.status,
           assignee: ticket.assignee,
           retry: `${ticket.retryCount}/${ticket.retryCap}`,
           escalations: `${ticket.escalationCount}/${ticket.escalationCap}`,
         },
-        backlogDropped: bhv.droppedCount(),
+        dropped: bhv.droppedCount(),
+        player: {
+          scenario: p.id,
+          elapsed: +p.elapsed.toFixed(1),
+          duration: p.duration,
+          paused: p.paused,
+          speed: p.speed,
+          finished: p.finished,
+          note: p.note,
+        },
       });
-      document.body.appendChild(el);
+      document.body.appendChild(diag);
     })
   );
 } else {
@@ -321,4 +348,4 @@ if (still) {
 }
 
 // Handy for poking at the model from the devtools console.
-window.SIM = { stage, office, agents, byId, nav, loco, bhv, ticket, startDemo };
+window.SIM = { stage, office, agents, byId, nav, loco, bhv, player };

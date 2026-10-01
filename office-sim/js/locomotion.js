@@ -299,8 +299,24 @@ export function createLocomotion(agents, nav, opts = {}) {
     separate();
   }
 
+  // Abandons a trip without finishing it. Restarting a scenario needs this:
+  // an agent half way across the office has to stop where it is before being
+  // put back at its desk, or it would carry on walking to a destination that
+  // belongs to the run that was just thrown away.
+  function cancel(agentOrId) {
+    const id = typeof agentOrId === 'string' ? agentOrId : agentOrId.id;
+    const st = state.get(id);
+    if (st) finish(st, false);
+  }
+
+  function cancelAll() {
+    for (const st of state.values()) finish(st, false);
+  }
+
   return {
     goTo,
+    cancel,
+    cancelAll,
     update,
     isBusy: (id) => state.get(id)?.mode !== 'idle',
     anyBusy: () => [...state.values()].some((st) => st.mode !== 'idle'),

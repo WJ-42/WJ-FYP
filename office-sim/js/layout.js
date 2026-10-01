@@ -176,6 +176,15 @@ export const LAYOUT = {
     printer: { at: [-12.0, 0.0], look: [-13.3, 0.0], zone: 'eng' },
     sofa: { at: [-7.6, 7.3], look: [-7.6, 5.9], seated: true, zone: 'eng' },
 
+    // Standing room on the far side of each engineering desk, facing the
+    // person sitting at it. `dropAt` is the point on the desk surface where a
+    // document gets put down, which is what makes "Product left the spec on
+    // an engineer's desk" an event you can watch rather than two people
+    // walking about. Clear of the monitor, which sits at z = 1.9.
+    eng1_dropoff: { at: [-11.6, 1.1], look: [-11.6, 2.2], zone: 'eng', dropAt: [-11.6, 0.8, 2.3] },
+    eng2_dropoff: { at: [-8.0, 1.1], look: [-8.0, 2.2], zone: 'eng', dropAt: [-8.0, 0.8, 2.3] },
+    eng3_dropoff: { at: [-4.4, 1.1], look: [-4.4, 2.2], zone: 'eng', dropAt: [-4.4, 0.8, 2.3] },
+
     // Layer 4 destinations for the paths a ticket takes when it does not
     // simply succeed.
     //

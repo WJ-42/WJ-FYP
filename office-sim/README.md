@@ -36,13 +36,13 @@ prototype runs offline and renders identically whenever it is revisited.
 | `N` | toggle the nav grid, every cell an agent may not stand in |
 | `P` | toggle the route each walking agent is following |
 | `B` | toggle the activity badges |
-| `1` | send everyone to the drawing board |
-| `0` | send everyone back to their desks |
-| `2`–`6` | run one of the ticket paths: happy, retry, timeout, escalation, halt |
+| `1`–`6` | play a scenario from the panel, in the order listed there |
+| `space` | play / pause |
+| `enter` | restart the current scenario |
+| `-` / `=` | slower / faster |
 
-These keys are a test harness, not a scenario library. Layer 5 owns scripted
-choreography and its playback controls; these exist only so each path can be
-triggered and watched before that exists.
+The same controls are on screen in the Scenarios panel, which is the primary
+way in; the keys are a convenience.
 
 ### URL parameters
 
@@ -58,7 +58,10 @@ triggered and watched before that exists.
 | `?still=1` | Draw a single frame instead of running the loop, and expose it for capture (see below) |
 | `?t=n` | Wind the simulation forward `n` seconds before drawing. Only meaningful with `?still=1`, and the only way to capture a walk part-way through a stride |
 | `?badges=0` | Hide the activity badges |
-| `?demo=...` | Run one ticket path on load: `happy`, `retry`, `timeout`, `escalation`, `halt` |
+| `?scenario=id` | Play one on load: `scoping`, `retry`, `timeout`, `escalation`, `deferred`, `idle`. `?demo=` is accepted as an alias, which is what Layer 4 called it before the library existed |
+| `?speed=n` | Playback speed: 0.5, 1, 2 or 4 |
+| `?paused=1` | Load a scenario but hold it at the first frame |
+| `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
@@ -88,7 +91,7 @@ the next starts.
 | 2 | The five agents as people, colour-coded by tier, at their home stations | done |
 | 3 | Navigation — nav grid, path following, walk animation, sit/stand | done |
 | 4 | Behaviour state machine, idle quirks, and the failure paths | done |
-| 5 | Scripted scenario: ticket scoping at the drawing board, with playback controls | |
+| 5 | Scenario library with playback controls | done |
 | 6 | Observation — click an agent for role and current action, event log | |
 | 7 | Replace the scripted timeline with the live orchestrator websocket stream | deferred |
 
@@ -101,6 +104,8 @@ the next starts.
 | `js/agents.js` | The roster and placing it at stations. Identities match the orchestrator's real agent ids. |
 | `js/build.js` | Geometry builders that turn the layout into meshes. All primitives, no external assets. |
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
+| `js/scenarios.js` | The scenario library, as data: each one a timeline of beats with captions. |
+| `js/player.js` | Playback: which scenario is loaded, where it has got to, and the transport over it. |
 | `js/tickets.js` | The ticket state machine, ported from the orchestrator's own `fsm.py`. |
 | `js/behaviour.js` | What each agent is doing and why: the ticket-driven states, the idle quirks, and the failure paths. |
 | `js/nav.js` | The walkable area, derived from the floor plan and the built geometry. A* over it, plus the debug overlays. |
@@ -150,6 +155,27 @@ width and the walk needs no separate collision pass. Run with `?nav=1` to see it
 a seated one, which means an agent begins and ends each trip standing inside a
 chair's own inflated footprint. Without a carve-out, every desk in the office
 would be unreachable from itself.
+
+**The scenario library is a standing feature, not scaffolding.** It does not go
+away when Layer 7 brings in live data. A real run is slow, costs real money, and
+cannot be made to fail on demand; the library plays any of the interesting cases
+in under a minute, including the ones a live run would only reach by accident.
+Scenarios are data rather than code — a time, an action from a fixed vocabulary,
+and a caption — so one can be read end to end without following function calls,
+and so the caption and the action it describes cannot drift apart.
+
+**Speed and pause are a global time scale, not a script rate.** The player
+publishes a scale and the frame loop multiplies every per-frame update by it, so
+half speed slows the walking and the walk cycle too, and pause is the same
+mechanism at zero. Had the player only throttled its own beats, a paused office
+would have carried on walking about with the script stopped, and slow motion
+would have looked like people hurrying between longer gaps.
+
+**Restart is a cut, not a scene.** It abandons anything in flight, puts everyone
+back at their desk instantly, clears the documents left lying around and issues
+a ticket with its budgets back at zero. Walking everyone home would have been a
+scenario of its own, and an agent half way across the office would otherwise
+carry on to a destination belonging to the run that was just discarded.
 
 **The states are the orchestrator's own, not a parallel invention.**
 `js/tickets.js` is a port of `src/wjfyp/orchestrator/fsm.py`: the same nine

@@ -22,7 +22,7 @@
 import * as THREE from 'three';
 import { LAYOUT } from './layout.js';
 import { PALETTE } from './palette.js';
-import { ROSTER } from './agents.js';
+import { ROSTER, placeAtStation } from './agents.js';
 import { STATUS, ACTIVE_ROLE_FOR_STATUS, applyTrigger } from './tickets.js';
 import { setAgentBadge, setAgentTimer, setAgentCarrying } from './characters.js';
 
@@ -87,6 +87,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     escalating: () => ['ESCALATING', PALETTE.status.alert],
     escalated: () => ['ESCALATED', PALETTE.status.alert],
     parking: () => ['TO BACKLOG', PALETTE.status.halted],
+    delivering: () => ['DELIVERING', PALETTE.status.active],
     halted: () => ['HALTED', PALETTE.status.halted],
     done: () => ['DONE', PALETTE.status.active],
   };
@@ -293,30 +294,123 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     // LISTENING badge long after the meeting that put them there has ended.
     // A break is left alone: someone already at the coffee machine when the
     // ticket moved on has not been summoned back by it.
+    // An errand already under way is left to finish. Delivering a spec and
+    // walking a halted ticket to the backlog both end by putting an object
+    // down somewhere; interrupting one half way would leave the document in
+    // the agent's hand with nothing ever to resolve it.
+    const ON_AN_ERRAND = new Set(['delivering', 'parking']);
+
     if (status !== STATUS.DONE) {
       for (const [id, rec] of recs) {
         if (rec.engaged || rec.activity === 'onBreak' || rec.activity === 'waiting') continue;
+        if (ON_AN_ERRAND.has(rec.activity)) continue;
         clearTimer(rec);
         sendHome(id, 'waiting');
       }
     }
   }
 
-  // Dropped tickets fan out along the cabinet rather than stacking in one spot,
-  // so three halted tickets read as three.
-  function dropTicketAtBacklog() {
-    const station = LAYOUT.stations.backlog;
-    const n = dropped.children.length;
+  function dropDocumentAt(x, y, z, where = 'floor') {
     const paper = new THREE.Mesh(
       new THREE.BoxGeometry(0.2, 0.014, 0.28),
       new THREE.MeshStandardMaterial({ color: PALETTE.ticketPaper, roughness: 0.9 })
     );
     paper.castShadow = true;
     paper.receiveShadow = true;
-    paper.position.set(station.at[0] - 0.75 + (n % 5) * 0.34, 0.012, station.at[1] - 0.55);
+    paper.position.set(x, y, z);
     paper.rotation.y = (rng() - 0.5) * 0.7;
     dropped.add(paper);
-    emit({ type: 'dropped', at: 'backlog', count: dropped.children.length });
+    emit({ type: 'dropped', at: where, count: dropped.children.length });
+    return paper;
+  }
+
+  // Halted tickets fan out along the cabinet rather than stacking in one spot,
+  // so three halted tickets read as three.
+  function dropTicketAtBacklog() {
+    const station = LAYOUT.stations.backlog;
+    const n = dropped.children.length;
+    dropDocumentAt(
+      station.at[0] - 0.75 + (n % 5) * 0.34,
+      0.012,
+      station.at[1] - 0.55,
+      'backlog'
+    );
+  }
+
+  /**
+   * Carries a document to a drop-off spot, leaves it there, and goes back to
+   * the agent's own desk. This is what the scoping scenario uses for Product
+   * putting the spec on an engineer's desk on its way back.
+   */
+  function deliver(agentId, stationName) {
+    const rec = recs.get(agentId);
+    const station = LAYOUT.stations[stationName];
+    if (!rec || !station) {
+      console.warn(`behaviour: cannot deliver to "${stationName}"`);
+      return;
+    }
+    rec.engaged = true;
+    setActivity(agentId, 'delivering');
+    setAgentCarrying(rec.agent, true);
+    setPlan(rec, [
+      { kind: 'goto', station: stationName },
+      { kind: 'wait', seconds: 0.7 },
+      {
+        kind: 'do',
+        fn: () => {
+          setAgentCarrying(rec.agent, false);
+          const p = station.dropAt ?? [station.at[0], 0.012, station.at[1]];
+          dropDocumentAt(p[0], p[1], p[2], stationName);
+        },
+      },
+      { kind: 'wait', seconds: 0.6 },
+      { kind: 'goto', station: HOME[agentId] },
+      {
+        kind: 'do',
+        fn: () => {
+          rec.engaged = false;
+          setActivity(agentId, 'waiting');
+        },
+      },
+    ]);
+  }
+
+  /**
+   * Puts the office back to how it started, instantly rather than by walking
+   * everyone home — a restart should look like a cut, not like a scenario of
+   * its own. Anything in flight is abandoned first, or an agent half way across
+   * the office would carry on to a destination from the run just discarded.
+   */
+  function resetOffice(newTicket = null) {
+    loco.cancelAll();
+
+    for (const rec of recs.values()) {
+      rec.plan = null;
+      rec.planIdx = 0;
+      rec.stepStarted = false;
+      rec.waitLeft = 0;
+      rec.engaged = false;
+      rec.idleFor = 0;
+      rec.timer = null;
+      setAgentTimer(rec.agent, null);
+      setAgentCarrying(rec.agent, false);
+      placeAtStation(rec.agent, HOME[rec.agent.id]);
+      rec.activity = 'waiting';
+      rec.detail = null;
+      refreshBadge(rec);
+    }
+
+    for (const child of [...dropped.children]) {
+      dropped.remove(child);
+      child.geometry.dispose();
+      child.material.dispose();
+    }
+
+    if (newTicket) {
+      ticket = newTicket;
+      enterStatus(ticket.status, null);
+    }
+    emit({ type: 'reset' });
   }
 
   // --- the stuck timer -----------------------------------------------------
@@ -435,6 +529,8 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     setTicket,
     fire,
     block,
+    deliver,
+    resetOffice,
     summonToBoard,
     disperse,
     onEvent,
