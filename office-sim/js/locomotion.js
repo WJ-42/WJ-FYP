@@ -256,7 +256,6 @@ export function createLocomotion(agents, nav, opts = {}) {
   // Only an agent that is actually travelling gets displaced, so nobody is
   // shoved off the chair they are sitting on, and never into a wall or a desk.
   function separate() {
-    const list = [...state.values()];
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i];
@@ -274,10 +273,9 @@ export function createLocomotion(agents, nav, opts = {}) {
         const ux = (dx / d) * push;
         const uz = (dz / d) * push;
 
-        const movers = [a, b].filter((s) => s.mode === 'travel');
         // One of the pair standing still means the walker absorbs the whole
         // correction rather than half of it.
-        const scale = movers.length === 1 ? 2 : 1;
+        const scale = a.mode === 'travel' && b.mode === 'travel' ? 1 : 2;
 
         if (a.mode === 'travel') nudge(pa, -ux * scale, -uz * scale);
         if (b.mode === 'travel') nudge(pb, ux * scale, uz * scale);
@@ -303,6 +301,9 @@ export function createLocomotion(agents, nav, opts = {}) {
   // an agent half way across the office has to stop where it is before being
   // put back at its desk, or it would carry on walking to a destination that
   // belongs to the run that was just thrown away.
+  // Snapshotted once: the roster never changes, and separate() runs every step.
+  const list = [...state.values()];
+
   function cancel(agentOrId) {
     const id = typeof agentOrId === 'string' ? agentOrId : agentOrId.id;
     const st = state.get(id);

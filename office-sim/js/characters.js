@@ -356,8 +356,21 @@ function setJoints(agent, f) {
   j.armForeR.rotation.x = f.armForeR;
 }
 
+// Poses are fixed, so expand each one once rather than rebuilding the same
+// object every frame. These functions run per agent per step, and a seek runs
+// thousands of steps in a single frame, so the allocation showed up.
+const EXPANDED = Object.fromEntries(
+  Object.entries(POSES).map(([name, pose]) => [name, expand(pose)])
+);
+
+const expandOf = (name) => EXPANDED[name] ?? EXPANDED.standing;
+
+// Reused by the two functions that build a pose per frame. Safe because
+// setJoints only reads it.
+const scratch = expand(POSES.standing);
+
 export function applyPose(agent, poseName) {
-  setJoints(agent, expand(POSES[poseName] ?? POSES.standing));
+  setJoints(agent, expandOf(poseName));
   agent.pose = poseName;
 }
 
@@ -367,15 +380,14 @@ export function applyPose(agent, poseName) {
  * ends of a walk are a short interpolation rather than an assignment.
  */
 export function applyPoseBlend(agent, fromName, toName, t) {
-  const a = expand(POSES[fromName] ?? POSES.standing);
-  const b = expand(POSES[toName] ?? POSES.standing);
+  const a = expandOf(fromName);
+  const b = expandOf(toName);
   const k = Math.max(0, Math.min(1, t));
   // Eased, so the figure settles into the chair instead of arriving at
   // constant speed and stopping dead.
   const e = k * k * (3 - 2 * k);
-  const out = {};
-  for (const key of Object.keys(a)) out[key] = a[key] + (b[key] - a[key]) * e;
-  setJoints(agent, out);
+  for (const key in a) scratch[key] = a[key] + (b[key] - a[key]) * e;
+  setJoints(agent, scratch);
   agent.pose = e < 0.5 ? fromName : toName;
 }
 
@@ -415,12 +427,13 @@ export const WALK_STRIDE = 2 * LEG_Y * Math.sin(WALK_THIGH);
  * comes to a halt; at 0 this is exactly the standing pose.
  */
 export function applyWalkPose(agent, phase, amount = 1) {
-  const base = expand(POSES.standing);
+  const base = EXPANDED.standing;
   const a = Math.max(0, Math.min(1, amount));
   const sL = Math.sin(phase);
   const sR = Math.sin(phase + Math.PI);
 
-  const f = { ...base };
+  const f = scratch;
+  f.armSpread = base.armSpread;
   f.thighL = base.thighL + a * WALK.thigh * sL;
   f.thighR = base.thighR + a * WALK.thigh * sR;
 

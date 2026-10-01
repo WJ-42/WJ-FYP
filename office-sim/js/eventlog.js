@@ -47,11 +47,12 @@ function clock(seconds) {
 export function createEventLog({ el, labelFor = (id) => id, timeFn = () => 0 }) {
   const entries = [];
 
-  function push(kind, text) {
-    const entry = { kind, text, at: timeFn() };
-    entries.unshift(entry);
-    if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
+  // Seeking replays the scenario, which re-fires every event in it. Writing all
+  // of that to the page as it goes is wasted work nobody sees, so a replay
+  // mutes the log and rebuilds it once at the end.
+  let muted = false;
 
+  function rowFor(entry) {
     const row = document.createElement('div');
     row.className = 'log-row';
 
@@ -61,18 +62,36 @@ export function createEventLog({ el, labelFor = (id) => id, timeFn = () => 0 }) 
 
     const body = document.createElement('span');
     body.className = 'log-text';
-    body.textContent = text;
-    body.style.borderLeftColor = hex(KIND_COLOUR[kind] ?? PALETTE.status.idle);
+    body.textContent = entry.text;
+    body.style.borderLeftColor = hex(KIND_COLOUR[entry.kind] ?? PALETTE.status.idle);
 
     row.append(time, body);
-    el.prepend(row);
+    return row;
+  }
 
+  function redraw() {
+    el.replaceChildren(...entries.map(rowFor));
+  }
+
+  function push(kind, text) {
+    entries.unshift({ kind, text, at: timeFn() });
+    if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
+    if (muted) return;
+
+    el.prepend(rowFor(entries[0]));
     while (el.childElementCount > MAX_ENTRIES) el.lastElementChild.remove();
+  }
+
+  /** Suspends drawing while a batch of events is replayed. */
+  function mute(value) {
+    const was = muted;
+    muted = !!value;
+    if (was && !muted) redraw();
   }
 
   function clear() {
     entries.length = 0;
-    el.replaceChildren();
+    if (!muted) el.replaceChildren();
   }
 
   /** Turns one behaviour event into a line, or ignores it. */
@@ -118,5 +137,5 @@ export function createEventLog({ el, labelFor = (id) => id, timeFn = () => 0 }) 
     push('note', text);
   }
 
-  return { record, note, clear, push, count: () => entries.length };
+  return { record, note, clear, push, mute, count: () => entries.length };
 }

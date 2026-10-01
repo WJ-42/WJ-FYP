@@ -78,6 +78,12 @@ export function createPlayer({ bhv, loco, makeTicket, step, onChange = () => {} 
   // The fixed step a seek replays at. Matching the frame loop's own cadence
   // keeps a seeked office in the same state a played-through one would reach.
   const SEEK_STEP = 1 / 60;
+  // A coarser one for live scrubbing. Replaying a long scenario at full
+  // resolution costs more than a frame, so dragging the bar backwards would
+  // lurch between distant states instead of sweeping through them. The frames
+  // seen mid-drag are approximate; the one landed on is not, because releasing
+  // re-runs the seek exactly.
+  const SCRUB_STEP = 1 / 15;
 
   /**
    * Jumps to a point in the scenario.
@@ -91,16 +97,27 @@ export function createPlayer({ bhv, loco, makeTicket, step, onChange = () => {} 
    *
    * Paused stays paused across a seek, so you can scrub a frozen office.
    */
-  function seek(seconds) {
+  /**
+   * `scrub` trades exactness for speed while a drag is in progress. `replay`
+   * forces the scenario to be re-run from the start even when seeking forwards,
+   * which is how an exact result is restored after a run of coarse scrub steps.
+   */
+  function seek(seconds, { scrub = false, replay = false } = {}) {
     if (!scenario || typeof step !== 'function') return;
 
     const target = Math.max(0, Math.min(duration, seconds));
     const wasPaused = paused;
+    const size = scrub ? SCRUB_STEP : SEEK_STEP;
 
-    load(scenario.id);
+    // Only going backwards needs the scenario replayed from the start. Seeking
+    // forwards carries on from wherever the office already is, which is both
+    // cheaper and exactly what playing on would have done — dragging the bar
+    // forward across a long scenario used to re-simulate the whole thing on
+    // every frame of the drag.
+    if (replay || target < clock) load(scenario.id);
 
-    for (let t = 0; t < target; t += SEEK_STEP) {
-      step(Math.min(SEEK_STEP, target - t));
+    while (clock < target - 1e-6) {
+      step(Math.min(size, target - clock));
     }
 
     paused = wasPaused;

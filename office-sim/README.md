@@ -68,7 +68,7 @@ way in; the keys are a convenience.
 | `?paused=1` | Load a scenario but hold it at the first frame |
 | `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
 | `?select=id` | Open the inspector on one agent, e.g. `?select=engineering-2` |
-| `?seekTo=n` | Scrub to `n` seconds on load. The bar needs a pointer, so this is how seeking gets checked headlessly |
+| `?seekTo=n` | Seek to `n` seconds on load; accepts a list, e.g. `?seekTo=60,30`, which exercises the forward and backward paths in one run. The bar needs a pointer, so this is how seeking is tested headlessly |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
@@ -168,14 +168,24 @@ would be unreachable from itself.
 
 **Seeking replays rather than rewinds.** A simulation cannot be run backwards:
 an agent half way across the office cannot be un-walked, and a merged ticket
-cannot be un-merged. So dragging the progress bar resets the office and re-runs
-the scenario at a fixed step up to the point asked for. That is only honest
-because the office is deterministic, as below — if any of it were random, the
-same seek would land somewhere slightly different every time, and scrubbing back
-and forth would quietly change the run underneath you. A seek to `n` lands in exactly the state
-that playing through to `n` reaches, which is checkable with `?seekTo=n` against
-`?t=n`. A drag queues at most one seek per frame, so crossing the whole bar
-replays once per paint rather than once per pointer event.
+cannot be un-merged. So seeking re-runs the scenario up to the point asked for.
+That is only honest because the office is deterministic, as below — if any of it
+were random the same seek would land somewhere slightly different every time,
+and scrubbing back and forth would quietly change the run underneath you.
+
+Three things keep that affordable. Seeking **forwards** carries on from wherever
+the office already is rather than starting over, because playing on is exactly
+what a forward seek means. Only going **backwards** replays from the start. And
+while the pointer is still down the replay runs at a coarser step, because a
+full-resolution replay of a long scenario costs more than one frame and the drag
+would lurch between distant states instead of sweeping through them; releasing
+re-runs the seek exactly, so the frame landed on is right even though the ones
+passed on the way were approximate.
+
+A seek lands in exactly the state that playing through to the same point
+reaches. `?seekTo=` checks that, including chained seeks like `?seekTo=60,30`
+which exercise the forward and backward paths in one run. The `?still=1`
+diagnostics report how long a seek took and how much of it was route-finding.
 
 **Nothing is random.** There was briefly a seeded random number generator here,
 which made runs repeatable but still left the choreography to chance. Preset is

@@ -48,7 +48,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(Math.max(lo, hi), v));
  * grows the panel. `limits` is supplied by the caller because the ceiling on
  * one panel depends on where the other one currently ends.
  */
-export function createResizablePanel({
+function createResizablePanel({
   wrap,
   gripX,
   gripY,

@@ -280,7 +280,19 @@ function stringPull(nav, grid, pts) {
  * even though they may sit inside a carved-out footprint, because an agent
  * really does stand on its own chair at each end.
  */
+// Route searches are counted, because they are by far the most expensive thing
+// the simulation does and a replay runs through all of them again.
+export const pathStats = { calls: 0, ms: 0 };
+
 export function findPath(nav, from, to) {
+  pathStats.calls += 1;
+  const started = performance.now();
+  const result = findPathUncounted(nav, from, to);
+  pathStats.ms += performance.now() - started;
+  return result;
+}
+
+function findPathUncounted(nav, from, to) {
   const grid = carvedGrid(nav, [from, to]);
 
   const start = nearestOpen(nav, grid, from[0], from[1]);

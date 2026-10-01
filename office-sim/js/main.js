@@ -12,7 +12,7 @@ import { createStage } from './scene.js';
 import { buildOffice } from './build.js';
 import { spawnAgents, setLabelsVisible } from './agents.js';
 import { setBadgesVisible } from './characters.js';
-import { buildNav, buildNavOverlay, createPathOverlay } from './nav.js';
+import { buildNav, buildNavOverlay, createPathOverlay, pathStats } from './nav.js';
 import { createLocomotion } from './locomotion.js';
 import { createBehaviour, BOARD_PLACES, HOME } from './behaviour.js';
 import { createTicket } from './tickets.js';
@@ -76,6 +76,14 @@ const player = createPlayer({ bhv, loco, makeTicket, step: stepSim, onChange: re
 // Set by the scrub handlers, consumed once per frame by the loop below.
 let pendingSeek = null;
 
+// Every seek goes through here so the log is not redrawn once per replayed
+// event; it is rebuilt once, after the office has arrived.
+function seekTo(seconds, opts) {
+  log.mute(true);
+  player.seek(seconds, opts);
+  log.mute(false);
+}
+
 const restartAt = Number(params.get('restartAt')) || 0;
 let sinceLoad = 0;
 let hasRestarted = false;
@@ -92,9 +100,9 @@ stage.onFrame((dt) => {
   // A scrub asks for at most one seek per frame, which is what keeps dragging
   // the bar from re-running the scenario several times between paints.
   if (pendingSeek !== null) {
-    const target = pendingSeek;
+    const { at, scrub, replay } = pendingSeek;
     pendingSeek = null;
-    player.seek(target);
+    seekTo(at, { scrub, replay });
   }
 
   stepSim(dt * player.timeScale());
@@ -159,7 +167,8 @@ function scrubTo(clientX) {
   const { duration } = player.state();
   if (!duration) return;
   const fraction = fractionAt(clientX);
-  pendingSeek = fraction * duration;
+  // Coarse while the pointer is down; releasing re-runs it exactly.
+  pendingSeek = { at: fraction * duration, scrub: true };
   // Immediate feedback: the seek itself lands on the next frame.
   el.bar.style.width = `${(fraction * 100).toFixed(1)}%`;
   el.time.textContent = `${clock(fraction * duration)} / ${clock(duration)}`;
@@ -181,6 +190,9 @@ const endScrub = (e) => {
   if (!scrubbing) return;
   scrubbing = false;
   if (el.progress.hasPointerCapture?.(e.pointerId)) el.progress.releasePointerCapture(e.pointerId);
+  // Land exactly where the bar says, rather than on the approximation the
+  // coarse scrub steps arrived at.
+  pendingSeek = { at: fractionAt(e.clientX) * player.state().duration, replay: true };
 };
 
 el.progress.addEventListener('pointerup', endScrub);
@@ -198,7 +210,7 @@ el.progress.addEventListener('keydown', (e) => {
   };
   if (!(e.key in keys)) return;
   e.preventDefault();
-  pendingSeek = keys[e.key];
+  pendingSeek = { at: keys[e.key] };
 });
 
 // --- Resizable panels ------------------------------------------------------
@@ -361,7 +373,22 @@ if (params.get('paused') === '1') player.setPaused(true);
 // is how the seek is checked headlessly: a seek to n should leave the office in
 // the same state as playing through to n with ?t=n. Applied after ?paused= so
 // that combination also exercises scrubbing a frozen office.
-if (params.get('seekTo')) player.seek(Number(params.get('seekTo')));
+let seekMs = null;
+if (params.get('seekTo')) {
+  // Accepts a list, e.g. ?seekTo=60,30 — seek forward then back. Chaining is
+  // what exercises the two paths against each other: a forward seek carries on
+  // from where the office is, a backward one replays, and both have to land
+  // where simply playing to that point would.
+  const targets = params
+    .get('seekTo')
+    .split(',')
+    .map(Number)
+    .filter(Number.isFinite);
+
+  const t0 = performance.now();
+  for (const target of targets) seekTo(target);
+  seekMs = +(performance.now() - t0).toFixed(1);
+}
 
 // ?select=engineering-2 opens the inspector on one agent, which is also how a
 // still capture gets a populated panel to look at.
@@ -503,6 +530,8 @@ if (still) {
           escalations: `${ticket.escalationCount}/${ticket.escalationCap}`,
         },
         dropped: bhv.droppedCount(),
+        seekMs,
+        paths: { calls: pathStats.calls, ms: +pathStats.ms.toFixed(1) },
         // Layer 6: picking, selection and the log.
         selected: inspector.selected()?.id ?? null,
         logEntries: log.count(),
