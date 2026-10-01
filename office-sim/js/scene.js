@@ -32,8 +32,15 @@ function placeCamera(camera, controls) {
   controls.update();
 }
 
-export function createStage(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+export function createStage(canvas, opts = {}) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    // Only needed for still captures: without it a one-shot render leaves the
+    // drawing buffer undefined by the time a screenshot composites, which looks
+    // exactly like a scene that failed to build.
+    preserveDrawingBuffer: !!opts.preserveDrawingBuffer,
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -124,6 +131,21 @@ export function createStage(canvas) {
 
   const resetView = () => placeCamera(camera, controls);
 
+  // Point the camera at a spot on the floor at a given zoom. Used by the
+  // ?focus=x,z&zoom=n params to inspect one part of the office closely, which
+  // is the only practical way to check poses and choreography headlessly.
+  function focusOn(x, z, zoom) {
+    const dx = x - controls.target.x;
+    const dz = z - controls.target.z;
+    controls.target.x = x;
+    controls.target.z = z;
+    camera.position.x += dx;
+    camera.position.z += dz;
+    if (zoom) camera.zoom = THREE.MathUtils.clamp(zoom, controls.minZoom, controls.maxZoom);
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+
   // --- Frame loop -----------------------------------------------------------
   const updaters = [];
   const clock = new THREE.Clock();
@@ -142,5 +164,16 @@ export function createStage(canvas) {
     });
   }
 
-  return { renderer, scene, camera, controls, onFrame, start, resetView };
+  // Draw exactly one frame and stop. A continuous animation loop never lets a
+  // headless browser's page go idle, so `?still=1` screenshots would hang once
+  // the scene got heavy enough that software-rendered frames were slow. This
+  // keeps headless verification viable for every later layer.
+  function renderOnce(advance = 0) {
+    for (const fn of updaters) fn(advance, advance);
+    clampTarget();
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  return { renderer, scene, camera, controls, onFrame, start, renderOnce, resetView, focusOn };
 }

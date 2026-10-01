@@ -90,7 +90,7 @@ export const LAYOUT = {
   furniture: [
     // --- CTO office ---
     { type: 'desk', at: [-10.4, -7.4] },
-    { type: 'chair', at: [-10.4, -6.05] },
+    { type: 'chair', at: [-10.4, -6.4] },
     { type: 'monitor', at: [-10.4, -7.7] },
     { type: 'shelf', at: [-13.2, -6.6], face: [1, 0] },
     { type: 'plant', at: [-8.0, -4.4], scale: 1.1 },
@@ -106,13 +106,13 @@ export const LAYOUT = {
 
     // --- Engineering pod: three desks in a row ---
     { type: 'desk', at: [-11.6, 2.2] },
-    { type: 'chair', at: [-11.6, 3.55] },
+    { type: 'chair', at: [-11.6, 3.4] },
     { type: 'monitor', at: [-11.6, 1.9] },
     { type: 'desk', at: [-8.0, 2.2] },
-    { type: 'chair', at: [-8.0, 3.55] },
+    { type: 'chair', at: [-8.0, 3.4] },
     { type: 'monitor', at: [-8.0, 1.9] },
     { type: 'desk', at: [-4.4, 2.2] },
-    { type: 'chair', at: [-4.4, 3.55] },
+    { type: 'chair', at: [-4.4, 3.4] },
     { type: 'monitor', at: [-4.4, 1.9] },
     { type: 'printer', at: [-13.3, 0.0], face: [1, 0] },
     { type: 'plant', at: [-13.3, 5.2] },
@@ -125,7 +125,7 @@ export const LAYOUT = {
 
     // --- Product desk ---
     { type: 'desk', at: [7.2, -0.6] },
-    { type: 'chair', at: [7.2, 0.75] },
+    { type: 'chair', at: [7.2, 0.4] },
     { type: 'monitor', at: [7.2, -0.9] },
     { type: 'cabinet', at: [10.3, -1.4] },
     { type: 'plant', at: [12.8, -2.2], scale: 1.15 },
@@ -143,13 +143,13 @@ export const LAYOUT = {
   // Named anchors an agent can occupy. `look` is a point they turn toward.
   // Layers 2-5 address these by key only.
   stations: {
-    cto_desk: { at: [-10.4, -6.05], look: [-10.4, -7.4], seated: true, zone: 'cto' },
+    cto_desk: { at: [-10.4, -6.4], look: [-10.4, -7.4], seated: true, zone: 'cto' },
 
-    eng1_desk: { at: [-11.6, 3.55], look: [-11.6, 2.2], seated: true, zone: 'eng' },
-    eng2_desk: { at: [-8.0, 3.55], look: [-8.0, 2.2], seated: true, zone: 'eng' },
-    eng3_desk: { at: [-4.4, 3.55], look: [-4.4, 2.2], seated: true, zone: 'eng' },
+    eng1_desk: { at: [-11.6, 3.4], look: [-11.6, 2.2], seated: true, zone: 'eng' },
+    eng2_desk: { at: [-8.0, 3.4], look: [-8.0, 2.2], seated: true, zone: 'eng' },
+    eng3_desk: { at: [-4.4, 3.4], look: [-4.4, 2.2], seated: true, zone: 'eng' },
 
-    product_desk: { at: [7.2, 0.75], look: [7.2, -0.6], seated: true, zone: 'product' },
+    product_desk: { at: [7.2, 0.4], look: [7.2, -0.6], seated: true, zone: 'product' },
 
     // Presenter spot at the whiteboard, and the ring of listeners in front of it
     board_present: { at: [2.0, -7.9], look: [2.0, -9.6], zone: 'board' },

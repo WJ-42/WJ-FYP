@@ -196,7 +196,10 @@ function makeChair() {
   const g = new THREE.Group();
   // Office chair: sitter faces north at yaw 0, so the backrest sits to the south.
   g.add(box(0.52, 0.09, 0.5, M.chairSoft, 0, 0.46, 0));
-  g.add(box(0.5, 0.46, 0.09, M.chairSoft, 0, 0.71, 0.22));
+  // Deliberately a low back. The camera looks from behind a seated figure, so
+  // a full-height backrest hides the tier-coloured shirt, which is the one part
+  // of an agent that carries meaning at a glance.
+  g.add(box(0.5, 0.34, 0.09, M.chairSoft, 0, 0.65, 0.22));
   g.add(cyl(0.05, 0.05, 0.42, M.chair, 0, 0.23, 0));
   g.add(cyl(0.3, 0.32, 0.05, M.chair, 0, 0.04, 0, 20));
   return g;
