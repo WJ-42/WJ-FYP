@@ -12,7 +12,7 @@ import { SCENARIOS_BY_ID, scenarioDuration } from './scenarios.js';
 
 export const SPEEDS = [0.5, 1, 2, 4];
 
-export function createPlayer({ bhv, loco, makeTicket, onChange = () => {} }) {
+export function createPlayer({ bhv, loco, makeTicket, step, onChange = () => {} }) {
   let scenario = null;
   let duration = 0;
   let clock = 0;
@@ -72,6 +72,38 @@ export function createPlayer({ bhv, loco, makeTicket, onChange = () => {} }) {
   function restart() {
     if (!scenario) return;
     load(scenario.id);
+  }
+
+  // The fixed step a seek replays at. Matching the frame loop's own cadence
+  // keeps a seeked office in the same state a played-through one would reach.
+  const SEEK_STEP = 1 / 60;
+
+  /**
+   * Jumps to a point in the scenario.
+   *
+   * A simulation cannot be rewound: an agent half way across the office cannot
+   * be un-walked, and a merged ticket cannot be un-merged. So seeking replays —
+   * the office is reset and the scenario re-run at a fixed step up to the
+   * target. That is only honest because the randomness is seeded; against
+   * Math.random the same seek would land somewhere slightly different each
+   * time, and scrubbing back and forth would quietly change the run.
+   *
+   * Paused stays paused across a seek, so you can scrub a frozen office.
+   */
+  function seek(seconds) {
+    if (!scenario || typeof step !== 'function') return;
+
+    const target = Math.max(0, Math.min(duration, seconds));
+    const wasPaused = paused;
+
+    load(scenario.id);
+
+    for (let t = 0; t < target; t += SEEK_STEP) {
+      step(Math.min(SEEK_STEP, target - t));
+    }
+
+    paused = wasPaused;
+    publish();
   }
 
   function setPaused(value) {
@@ -136,6 +168,7 @@ export function createPlayer({ bhv, loco, makeTicket, onChange = () => {} }) {
   return {
     load,
     restart,
+    seek,
     setPaused,
     togglePaused,
     setSpeed,

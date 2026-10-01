@@ -21,6 +21,7 @@ import { createPlayer, SPEEDS } from './player.js';
 import { createInspector } from './inspect.js';
 import { createEventLog } from './eventlog.js';
 import { createRng } from './rng.js';
+import { createResizableRail } from './panels.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -63,11 +64,23 @@ const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene, rng });
 bhv.setTicket(makeTicket());
 
 // --- Scenarios (Layer 5) ---------------------------------------------------
-const player = createPlayer({ bhv, loco, makeTicket, onChange: renderPanel });
+// One place that advances the simulation by a raw, unscaled step. The frame
+// loop scales it by the playback speed; a seek replays through it at full rate
+// regardless of speed or pause.
+function stepSim(dt) {
+  loco.update(dt);
+  bhv.update(dt);
+  player.update(dt);
+}
+
+const player = createPlayer({ bhv, loco, makeTicket, step: stepSim, onChange: renderPanel });
 
 // ?restartAt=n presses Restart n seconds in, so the reset path can be checked
 // headlessly like everything else. Measured in unscaled time, independent of
 // the playback speed, so the moment it fires does not move when the speed does.
+// Set by the scrub handlers, consumed once per frame by the loop below.
+let pendingSeek = null;
+
 const restartAt = Number(params.get('restartAt')) || 0;
 let sinceLoad = 0;
 let hasRestarted = false;
@@ -81,10 +94,15 @@ stage.onFrame((dt) => {
     }
   }
 
-  const scaled = dt * player.timeScale();
-  loco.update(scaled);
-  bhv.update(scaled);
-  player.update(scaled);
+  // A scrub asks for at most one seek per frame, which is what keeps dragging
+  // the bar from re-running the scenario several times between paints.
+  if (pendingSeek !== null) {
+    const target = pendingSeek;
+    pendingSeek = null;
+    player.seek(target);
+  }
+
+  stepSim(dt * player.timeScale());
   // Not scaled: the rings follow wherever the figures ended up this frame, and
   // the panel should keep responding while the office is paused.
   inspector.update();
@@ -98,6 +116,7 @@ const el = {
   speeds: document.getElementById('speeds'),
   play: document.getElementById('btn-play'),
   restart: document.getElementById('btn-restart'),
+  progress: document.getElementById('scenario-progress'),
   bar: document.getElementById('scenario-bar'),
   name: document.getElementById('scenario-name'),
   time: document.getElementById('scenario-time'),
@@ -127,6 +146,73 @@ for (const value of SPEEDS) {
 
 el.play.addEventListener('click', () => player.togglePaused());
 el.restart.addEventListener('click', () => player.restart());
+
+// --- Scrubbing -------------------------------------------------------------
+// Dragging the bar paints the new position immediately and queues the seek for
+// the frame loop, so a drag across the whole bar replays the scenario once per
+// frame rather than once per pointer event.
+
+let scrubbing = false;
+
+function fractionAt(clientX) {
+  const rect = el.progress.getBoundingClientRect();
+  if (!rect.width) return 0;
+  return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+}
+
+function scrubTo(clientX) {
+  const { duration } = player.state();
+  if (!duration) return;
+  const fraction = fractionAt(clientX);
+  pendingSeek = fraction * duration;
+  // Immediate feedback: the seek itself lands on the next frame.
+  el.bar.style.width = `${(fraction * 100).toFixed(1)}%`;
+  el.time.textContent = `${clock(fraction * duration)} / ${clock(duration)}`;
+}
+
+el.progress.addEventListener('pointerdown', (e) => {
+  if (!player.state().duration) return;
+  scrubbing = true;
+  el.progress.setPointerCapture(e.pointerId);
+  scrubTo(e.clientX);
+  e.preventDefault();
+});
+
+el.progress.addEventListener('pointermove', (e) => {
+  if (scrubbing) scrubTo(e.clientX);
+});
+
+const endScrub = (e) => {
+  if (!scrubbing) return;
+  scrubbing = false;
+  if (el.progress.hasPointerCapture?.(e.pointerId)) el.progress.releasePointerCapture(e.pointerId);
+};
+
+el.progress.addEventListener('pointerup', endScrub);
+el.progress.addEventListener('pointercancel', endScrub);
+
+el.progress.addEventListener('keydown', (e) => {
+  const { elapsed, duration } = player.state();
+  if (!duration) return;
+  const step = e.shiftKey ? 1 : 5;
+  const keys = {
+    ArrowRight: elapsed + step,
+    ArrowLeft: elapsed - step,
+    Home: 0,
+    End: duration,
+  };
+  if (!(e.key in keys)) return;
+  e.preventDefault();
+  pendingSeek = keys[e.key];
+});
+
+// --- Resizable rail --------------------------------------------------------
+createResizableRail({
+  rail: document.getElementById('rail-right'),
+  topPanel: document.getElementById('scenarios'),
+  splitter: document.getElementById('rail-splitter'),
+  widthHandle: document.getElementById('rail-width'),
+});
 
 // --- Observation (Layer 6) -------------------------------------------------
 
@@ -194,9 +280,17 @@ function renderPanel(state) {
 }
 
 function updateProgress() {
+  // A drag owns the readout until it lets go, or the bar would snap back to the
+  // played position between the pointer moving and the seek landing.
+  if (scrubbing) return;
+
   const state = player.state();
   el.bar.style.width = `${(state.progress * 100).toFixed(1)}%`;
   el.time.textContent = `${clock(state.elapsed)} / ${clock(state.duration)}`;
+
+  el.progress.setAttribute('aria-valuemax', state.duration.toFixed(0));
+  el.progress.setAttribute('aria-valuenow', state.elapsed.toFixed(0));
+  el.progress.setAttribute('aria-valuetext', clock(state.elapsed));
 }
 
 // --- Debug overlays and URL parameters -------------------------------------
@@ -256,6 +350,12 @@ const wanted = params.get('scenario') || params.get('demo');
 if (wanted) player.load(wanted);
 
 if (params.get('paused') === '1') player.setPaused(true);
+
+// ?seekTo=n scrubs to n seconds on load. The scrub bar needs a pointer, so this
+// is how the seek is checked headlessly: a seek to n should leave the office in
+// the same state as playing through to n with ?t=n. Applied after ?paused= so
+// that combination also exercises scrubbing a frozen office.
+if (params.get('seekTo')) player.seek(Number(params.get('seekTo')));
 
 // ?select=engineering-2 opens the inspector on one agent, which is also how a
 // still capture gets a populated panel to look at.

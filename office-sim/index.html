@@ -86,6 +86,59 @@
         right: 18px;
         bottom: 18px;
         width: min(390px, calc(50vw - 27px));
+        /* The splitter occupies the space between the panels, so the rail must
+           not add a gap of its own on top of it. */
+        gap: 0;
+      }
+
+      /* --- Resize handles -------------------------------------------------- */
+
+      .splitter {
+        pointer-events: auto;
+        flex: 0 0 auto;
+        height: 12px;
+        cursor: ns-resize;
+        position: relative;
+      }
+
+      .width-handle {
+        pointer-events: auto;
+        position: absolute;
+        left: -5px;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        cursor: ew-resize;
+      }
+
+      /* The grip marks are drawn rather than bordered, so the hit area can stay
+         comfortably larger than the thing you can see. */
+      .splitter::after,
+      .width-handle::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        /* Dark, not light: both grips sit over the 3D scene rather than over a
+           card, and the scene's ground is pale. */
+        background: rgba(18, 21, 18, 0.5);
+        border-radius: 2px;
+      }
+
+      .splitter::after {
+        width: 38px;
+        height: 3px;
+      }
+
+      .width-handle::after {
+        width: 3px;
+        height: 38px;
+      }
+
+      .splitter:hover::after,
+      .width-handle:hover::after {
+        background: #6fe0d2;
       }
 
       .hud {
@@ -373,11 +426,33 @@
         font-size: 12px !important;
       }
 
+      /* A 4px bar is too thin to hit reliably, so the control is 14px tall and
+         only the track inside it is drawn. */
       #scenario-progress {
+        height: 14px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        border-radius: 3px;
+        touch-action: none;
+      }
+
+      #scenario-progress:focus-visible {
+        outline: 2px solid #6fe0d2;
+        outline-offset: 2px;
+      }
+
+      #scenario-track {
+        width: 100%;
         height: 4px;
         border-radius: 2px;
         background: rgba(238, 241, 236, 0.13);
         overflow: hidden;
+      }
+
+      #scenario-progress:hover #scenario-track,
+      #scenario-progress:focus-visible #scenario-track {
+        height: 6px;
       }
 
       #scenario-bar {
@@ -423,6 +498,9 @@
     </div>
 
     <div class="rail" id="rail-right">
+      <!-- Drag to resize, double-click to reset. Sizes persist per browser. -->
+      <div class="width-handle" id="rail-width" title="Drag to resize · double-click to reset"></div>
+
       <div class="hud" id="scenarios">
         <h2>Scenarios</h2>
         <!-- Buttons are generated from the library in scenarios.js, so the panel
@@ -435,8 +513,17 @@
           <span class="speeds" id="speeds" role="group" aria-label="Playback speed"></span>
         </div>
 
-        <div id="scenario-progress">
-          <div id="scenario-bar"></div>
+        <div
+          id="scenario-progress"
+          role="slider"
+          tabindex="0"
+          aria-label="Scenario position"
+          aria-valuemin="0"
+          aria-valuemax="0"
+          aria-valuenow="0"
+          aria-valuetext="0:00"
+        >
+          <div id="scenario-track"><div id="scenario-bar"></div></div>
         </div>
         <div id="scenario-meta">
           <span id="scenario-name">—</span>
@@ -445,6 +532,8 @@
 
         <p id="scenario-note" aria-live="polite">Pick a scenario to play it.</p>
       </div>
+
+      <div class="splitter" id="rail-splitter" title="Drag to resize · double-click to reset"></div>
 
       <div class="hud" id="eventlog">
         <h2>Event log</h2>

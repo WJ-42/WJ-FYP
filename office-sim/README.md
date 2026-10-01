@@ -42,6 +42,9 @@ prototype runs offline and renders identically whenever it is revisited.
 | `-` / `=` | slower / faster |
 | `click` | inspect an agent; click empty floor to deselect |
 | `esc` | close the inspector |
+| drag the progress bar | seek to any point in the scenario |
+| `←` / `→` | with the bar focused, seek 5s (hold shift for 1s); `home` / `end` jump to the ends |
+| drag the panel handles | resize the scenario and log panels, or the rail's width; double-click a handle to reset |
 
 The same controls are on screen in the Scenarios panel, which is the primary
 way in; the keys are a convenience.
@@ -66,6 +69,7 @@ way in; the keys are a convenience.
 | `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
 | `?select=id` | Open the inspector on one agent, e.g. `?select=engineering-2` |
 | `?seed=n` | Seed for the office's randomness. The same seed replays the same run; the default is a fixed one |
+| `?seekTo=n` | Scrub to `n` seconds on load. The bar needs a pointer, so this is how seeking gets checked headlessly |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
@@ -111,6 +115,7 @@ the next starts.
 | `js/inspect.js` | Picking an agent out of the scene, the selection rings, and the inspector panel. |
 | `js/eventlog.js` | Reads the events the office already emits and renders them as a log. |
 | `js/rng.js` | Seeded random numbers, so a run can be replayed exactly. |
+| `js/panels.js` | Dragging the HUD panels to resize them, and remembering the sizes. |
 | `js/scenarios.js` | The scenario library, as data: each one a timeline of beats with captions. |
 | `js/player.js` | Playback: which scenario is loaded, where it has got to, and the transport over it. |
 | `js/tickets.js` | The ticket state machine, ported from the orchestrator's own `fsm.py`. |
@@ -162,6 +167,17 @@ width and the walk needs no separate collision pass. Run with `?nav=1` to see it
 a seated one, which means an agent begins and ends each trip standing inside a
 chair's own inflated footprint. Without a carve-out, every desk in the office
 would be unreachable from itself.
+
+**Seeking replays rather than rewinds.** A simulation cannot be run backwards:
+an agent half way across the office cannot be un-walked, and a merged ticket
+cannot be un-merged. So dragging the progress bar resets the office and re-runs
+the scenario at a fixed step up to the point asked for. That is only honest
+because of the seeding below — against `Math.random` the same seek would land
+somewhere slightly different every time, and scrubbing back and forth would
+quietly change the run underneath you. A seek to `n` lands in exactly the state
+that playing through to `n` reaches, which is checkable with `?seekTo=n` against
+`?t=n`. A drag queues at most one seek per frame, so crossing the whole bar
+replays once per paint rather than once per pointer event.
 
 **The randomness is seeded.** Which break an idle agent wanders off to, how
 long it stays, how a dropped document lands — all of it comes from a seeded
