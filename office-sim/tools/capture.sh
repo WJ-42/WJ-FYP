@@ -48,22 +48,28 @@ timeout 180 chromium \
   --dump-dom "$URL" > "${WORK}/dom.html" 2>"${WORK}/console.log"
 
 python3 - "$WORK/dom.html" "$OUT" <<'PY'
-import base64, re, sys
+import base64, html, re, sys
 dom_path, out_path = sys.argv[1], sys.argv[2]
 dom = open(dom_path, encoding='utf-8', errors='replace').read()
 
+# The element carries a style attribute too, so the id cannot be assumed to be
+# the last thing before the '>'.
+def diagnostics():
+    m = re.search(r'id="diag"[^>]*>(.*?)</pre>', dom, re.S)
+    return html.unescape(m.group(1)) if m else None
+
 m = re.search(r'data-png="data:image/png;base64,([^"]+)"', dom)
 if not m:
-    diag = re.search(r'id="diag">([^<]*)<', dom)
-    print("No frame captured.", "Diagnostics:" if diag else "", diag.group(1) if diag else "", file=sys.stderr)
+    diag = diagnostics()
+    print("No frame captured.", "Diagnostics:" if diag else "", diag or "", file=sys.stderr)
     sys.exit(1)
 
 open(out_path, 'wb').write(base64.b64decode(m.group(1)))
 
-diag = re.search(r'id="diag">([^<]*)<', dom)
 print(f"wrote {out_path}")
+diag = diagnostics()
 if diag:
-    print(diag.group(1))
+    print(diag)
 PY
 
 grep -iE "CONSOLE.*(error|uncaught)" "${WORK}/console.log" >&2 || true

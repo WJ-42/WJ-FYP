@@ -149,15 +149,24 @@ export function createStage(canvas, opts = {}) {
   // --- Frame loop -----------------------------------------------------------
   const updaters = [];
   const clock = new THREE.Clock();
+  let simTime = 0;
 
   function onFrame(fn) {
     updaters.push(fn);
   }
 
+  // Advance the simulation without drawing. Used to wind a still capture
+  // forward to a chosen moment: a walk cycle can only be checked part-way
+  // through a stride, and one big dt would simply teleport the agent past it.
+  function step(dt) {
+    simTime += dt;
+    for (const fn of updaters) fn(dt, simTime);
+  }
+
   function start() {
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.1); // clamp after a tab switch
-      for (const fn of updaters) fn(dt, clock.elapsedTime);
+      step(dt);
       clampTarget();
       controls.update();
       renderer.render(scene, camera);
@@ -169,11 +178,22 @@ export function createStage(canvas, opts = {}) {
   // the scene got heavy enough that software-rendered frames were slow. This
   // keeps headless verification viable for every later layer.
   function renderOnce(advance = 0) {
-    for (const fn of updaters) fn(advance, advance);
+    step(advance);
     clampTarget();
     controls.update();
     renderer.render(scene, camera);
   }
 
-  return { renderer, scene, camera, controls, onFrame, start, renderOnce, resetView, focusOn };
+  return {
+    renderer,
+    scene,
+    camera,
+    controls,
+    onFrame,
+    step,
+    start,
+    renderOnce,
+    resetView,
+    focusOn,
+  };
 }

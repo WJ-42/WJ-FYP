@@ -160,6 +160,7 @@ function buildFloorLabel(text, x, z, size = 0.62) {
 
 function buildWalls() {
   const group = new THREE.Group();
+  group.name = 'walls';
   const h = LAYOUT.wallHeight;
   const t = LAYOUT.wallThickness;
   // BoxGeometry face order is [+X, -X, +Y, -Y, +Z, -Z]; only +Y is the top.
@@ -408,6 +409,9 @@ const BUILDERS = {
 
 function buildFurniture() {
   const group = new THREE.Group();
+  // Named because Layer 3's nav grid derives its obstacle footprints from this
+  // geometry rather than from a parallel table of sizes that could drift.
+  group.name = 'furniture';
   for (const item of LAYOUT.furniture) {
     const builder = BUILDERS[item.type];
     if (!builder) {

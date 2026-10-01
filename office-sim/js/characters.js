@@ -141,20 +141,127 @@ export const POSES = {
   },
 };
 
-export function applyPose(agent, poseName) {
-  const pose = POSES[poseName] ?? POSES.standing;
+// The poses above are symmetric, which a walk cycle is not: it needs the left
+// and right limbs at opposite points of the same stride. So a pose is expanded
+// into a flat per-joint set before being applied, and walking is that same set
+// with a stride added to it rather than a separate code path.
+function expand(pose) {
+  return {
+    hipY: pose.hipY,
+    torso: pose.torso,
+    armSpread: pose.armSpread,
+    thighL: pose.thigh,
+    thighR: pose.thigh,
+    shinL: pose.shin,
+    shinR: pose.shin,
+    armUpperL: pose.armUpper,
+    armUpperR: pose.armUpper,
+    armForeL: pose.armFore,
+    armForeR: pose.armFore,
+  };
+}
+
+function setJoints(agent, f) {
   const j = agent.joints;
-  j.hips.position.y = pose.hipY;
-  j.thighL.rotation.x = pose.thigh;
-  j.thighR.rotation.x = pose.thigh;
-  j.shinL.rotation.x = pose.shin;
-  j.shinR.rotation.x = pose.shin;
-  j.torso.rotation.x = pose.torso;
-  j.armUpperL.rotation.set(pose.armUpper, 0, pose.armSpread);
-  j.armUpperR.rotation.set(pose.armUpper, 0, -pose.armSpread);
-  j.armForeL.rotation.x = pose.armFore;
-  j.armForeR.rotation.x = pose.armFore;
+  j.hips.position.y = f.hipY;
+  j.thighL.rotation.x = f.thighL;
+  j.thighR.rotation.x = f.thighR;
+  j.shinL.rotation.x = f.shinL;
+  j.shinR.rotation.x = f.shinR;
+  j.torso.rotation.x = f.torso;
+  j.armUpperL.rotation.set(f.armUpperL, 0, f.armSpread);
+  j.armUpperR.rotation.set(f.armUpperR, 0, -f.armSpread);
+  j.armForeL.rotation.x = f.armForeL;
+  j.armForeR.rotation.x = f.armForeR;
+}
+
+export function applyPose(agent, poseName) {
+  setJoints(agent, expand(POSES[poseName] ?? POSES.standing));
   agent.pose = poseName;
+}
+
+/**
+ * Blends between two named poses. Standing up and sitting down are the whole
+ * reason the rig exists, and snapping between them reads as a glitch, so both
+ * ends of a walk are a short interpolation rather than an assignment.
+ */
+export function applyPoseBlend(agent, fromName, toName, t) {
+  const a = expand(POSES[fromName] ?? POSES.standing);
+  const b = expand(POSES[toName] ?? POSES.standing);
+  const k = Math.max(0, Math.min(1, t));
+  // Eased, so the figure settles into the chair instead of arriving at
+  // constant speed and stopping dead.
+  const e = k * k * (3 - 2 * k);
+  const out = {};
+  for (const key of Object.keys(a)) out[key] = a[key] + (b[key] - a[key]) * e;
+  setJoints(agent, out);
+  agent.pose = e < 0.5 ? fromName : toName;
+}
+
+// Stride shape. `phase` advances with distance travelled rather than with time,
+// so the feet cannot skate when the walking speed changes.
+// The hip swing and the hip dip are not independent. A leg swung forward by
+// `thigh` radians is geometrically shorter in Y than a vertical one, so unless
+// the hips drop by the same amount at that moment the planted foot hangs in the
+// air and the figure appears to skim the floor. For a leg of length `legY`:
+//
+//   dip = legY * (1 - cos(thigh))
+//
+// Changing one of these without the other is what makes a walk cycle look
+// wrong in a way that is hard to name, so they are derived here rather than
+// both being guessed.
+const WALK_THIGH = 0.38; // peak hip swing
+const LEG_Y = P.hipY; // hip to sole, standing
+
+const WALK = {
+  thigh: WALK_THIGH,
+  knee: 0.62, // peak knee flex during the swing-through
+  kneeBase: 0.08, // legs are never quite locked straight
+  arm: 0.34,
+  foreArm: 0.18,
+  bob: LEG_Y * (1 - Math.cos(WALK_THIGH)),
+  lean: 0.07,
+};
+
+// Metres of ground covered per half cycle, from the same geometry: the two feet
+// end up 2 * legY * sin(thigh) apart at full stride. locomotion.js advances the
+// phase by distance over this, which is what keeps the feet from skating.
+export const WALK_STRIDE = 2 * LEG_Y * Math.sin(WALK_THIGH);
+
+/**
+ * Poses a figure mid-stride. `amount` fades the whole cycle in and out, which
+ * is what stops the legs still swinging while an agent pivots on the spot or
+ * comes to a halt; at 0 this is exactly the standing pose.
+ */
+export function applyWalkPose(agent, phase, amount = 1) {
+  const base = expand(POSES.standing);
+  const a = Math.max(0, Math.min(1, amount));
+  const sL = Math.sin(phase);
+  const sR = Math.sin(phase + Math.PI);
+
+  const f = { ...base };
+  f.thighL = base.thighL + a * WALK.thigh * sL;
+  f.thighR = base.thighR + a * WALK.thigh * sR;
+
+  // A knee only bends backwards, and it bends most just after the foot leaves
+  // the floor, which is when that thigh is at its rearmost. Hence the negative
+  // sign (see the convention note above) and the phase lead.
+  const flex = (p) => WALK.kneeBase + WALK.knee * Math.max(0, -Math.sin(p - 0.5));
+  f.shinL = base.shinL - a * flex(phase);
+  f.shinR = base.shinR - a * flex(phase + Math.PI);
+
+  // Arms counter-swing: the left arm comes forward as the left leg goes back.
+  f.armUpperL = base.armUpperL - a * WALK.arm * sL;
+  f.armUpperR = base.armUpperR - a * WALK.arm * sR;
+  f.armForeL = base.armForeL + a * WALK.foreArm * Math.max(0, -sL);
+  f.armForeR = base.armForeR + a * WALK.foreArm * Math.max(0, -sR);
+
+  f.torso = base.torso + a * WALK.lean;
+  // Hips dip twice per cycle, lowest when the legs are furthest apart.
+  f.hipY = base.hipY - a * WALK.bob * (0.5 - 0.5 * Math.cos(2 * phase));
+
+  setJoints(agent, f);
+  agent.pose = a > 0.02 ? 'walking' : 'standing';
 }
 
 /**

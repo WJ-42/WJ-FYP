@@ -33,6 +33,14 @@ prototype runs offline and renders identically whenever it is revisited.
 | `R` | reset the view |
 | `G` | toggle station anchor markers |
 | `L` | toggle name tags |
+| `N` | toggle the nav grid, every cell an agent may not stand in |
+| `P` | toggle the route each walking agent is following |
+| `1` | send everyone to the drawing board |
+| `0` | send everyone back to their desks |
+
+`1` and `0` are a test harness for Layer 3, not a scenario. Layer 5 owns scripted
+choreography and its playback controls; these two keys exist only so a walk can
+be triggered and watched before that exists.
 
 ### URL parameters
 
@@ -42,7 +50,11 @@ prototype runs offline and renders identically whenever it is revisited.
 | `?labels=0` | Hide the name tags |
 | `?focus=x,z` | Centre the view on a point on the floor, e.g. `?focus=-8,2.6` |
 | `?zoom=n` | Zoom factor, roughly 0.55 to 4.5 |
+| `?nav=1` | Show the nav grid. The fastest check that obstacles were derived correctly: a desk that failed to register shows as a hole, an over-inflated wall as a doorway sealed shut |
+| `?paths=1` | Draw each walking agent's route in its own tier colour |
+| `?goto=...` | Send agents somewhere on load. `?goto=board` and `?goto=home` move everyone; `?goto=cto-1:break_table;product-1:coffee` addresses them individually as `agentId:station` |
 | `?still=1` | Draw a single frame instead of running the loop, and expose it for capture (see below) |
+| `?t=n` | Wind the simulation forward `n` seconds before drawing. Only meaningful with `?still=1`, and the only way to capture a walk part-way through a stride |
 
 ### Capturing a frame
 
@@ -69,7 +81,7 @@ the next starts.
 |---|---|---|
 | 1 | Static office shell — floor plan, low walls, furniture, zones, camera | done |
 | 2 | The five agents as people, colour-coded by tier, at their home stations | done |
-| 3 | Navigation — waypoint graph, path following, walk animation, sit/stand | |
+| 3 | Navigation — nav grid, path following, walk animation, sit/stand | done |
 | 4 | Behaviour state machine and idle quirks (coffee, fridge, water cooler) | |
 | 5 | Scripted scenario: ticket scoping at the drawing board, with playback controls | |
 | 6 | Observation — click an agent for role and current action, event log | |
@@ -84,6 +96,8 @@ the next starts.
 | `js/agents.js` | The roster and placing it at stations. Identities match the orchestrator's real agent ids. |
 | `js/build.js` | Geometry builders that turn the layout into meshes. All primitives, no external assets. |
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
+| `js/nav.js` | The walkable area, derived from the floor plan and the built geometry. A* over it, plus the debug overlays. |
+| `js/locomotion.js` | Moving one agent to a named station: the rise/walk/turn/sit state machine, and the stride. |
 | `js/scene.js` | Renderer, orthographic camera, lighting, camera controls, frame loop. |
 | `js/main.js` | Wiring only. |
 
@@ -113,3 +127,29 @@ as five copies of one person.
 a cutaway system to see inside rooms. The side effect is that a wall hides
 roughly a metre of floor immediately behind it at this pitch, so floor labels
 and low furniture are kept clear of that band.
+
+**The walkable area is derived, not drawn.** A hand-placed waypoint graph would
+be a second set of coordinates to keep in step with `layout.js`, and it would rot
+silently the first time a desk moved. Instead a 0.25m grid is laid over the floor
+and blocked from two sources: the wall segments in `LAYOUT`, and the bounding
+boxes of the furniture Layer 1 actually built, filtered to things tall enough to
+walk into — which is why an agent crosses the rug but goes around a pot plant.
+Doorways need no special case at all, because a door gap is an absent wall
+segment, so its cells are simply never marked. Obstacles are inflated by the
+agent's own radius, so a route that clears the grid clears it for a body with
+width and the walk needs no separate collision pass. Run with `?nav=1` to see it.
+
+**Both ends of a route are carved clear before searching.** Every home station is
+a seated one, which means an agent begins and ends each trip standing inside a
+chair's own inflated footprint. Without a carve-out, every desk in the office
+would be unreachable from itself.
+
+**Stride length and hip dip are derived from the rig, not tuned by eye.** A leg
+swung forward is geometrically shorter in Y than a vertical one, so unless the
+hips drop by exactly `legLength * (1 - cos(swing))` at that moment, the planted
+foot hangs in the air and the figure skims the floor. The distance covered per
+half cycle falls out of the same geometry, and the walk phase advances with
+distance travelled rather than with time, so changing the walking speed cannot
+make the feet skate. These three numbers are computed from one another in
+`characters.js`; setting any of them independently is what makes a walk cycle
+look wrong in a way that is hard to name.
