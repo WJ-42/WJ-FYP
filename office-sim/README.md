@@ -15,10 +15,21 @@ orchestrator event stream.
 It needs to be served over HTTP (ES modules will not load from `file://`):
 
 ```
-python3 -m http.server 8731 --directory office-sim
+office-sim/tools/serve.py 8731 office-sim
 ```
 
 then open <http://localhost:8731/>.
+
+That is `python3 -m http.server` with one addition: it tells the browser not to
+cache anything. Worth knowing why, because the failure it prevents is badly
+disguised. The stock server sends no `Cache-Control` at all, so browsers cache
+heuristically and can keep a module that has since changed. If a cached module
+imports a file that has since been renamed or deleted, the import 404s, the
+whole module graph fails, and *no* JavaScript runs — the page draws its static
+HTML and nothing else. An empty 3D view with no scenario buttons looks like the
+application has broken badly, when the files on disk are perfectly fine. If you
+ever see that, check which port the tab is on and hard-reload before suspecting
+the code.
 
 Three.js is vendored in `vendor/` rather than pulled from a CDN, so the
 prototype runs offline and renders identically whenever it is revisited.
