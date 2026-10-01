@@ -41,6 +41,9 @@ const BREAK_STATIONS = ['coffee', 'fridge', 'water_cooler', 'break_table', 'sofa
 // nothing that would ever resolve it.
 const ON_AN_ERRAND = new Set(['delivering', 'parking']);
 
+// Angles a put-down document can land at, cycled through in order.
+const DROP_ANGLES = [-0.28, 0.17, -0.09, 0.31, -0.2];
+
 // Where the listeners stand when the CTO is scoping at the board.
 export const BOARD_PLACES = {
   'cto-1': 'board_present',
@@ -52,9 +55,9 @@ export const BOARD_PLACES = {
 
 export const HOME = Object.fromEntries(ROSTER.map((r) => [r.id, r.station]));
 
-export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }) {
+export function createBehaviour({ agents, byId, loco, scene }) {
   const recs = new Map();
-  for (const agent of agents) {
+  agents.forEach((agent, index) => {
     recs.set(agent.id, {
       agent,
       activity: 'waiting',
@@ -66,8 +69,13 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
       stepStarted: false,
       waitLeft: 0,
       timer: null,
+      // Position in the break rota, and how far through it this agent is.
+      // Both are plain counters: the office is deterministic by construction,
+      // not by seeding a random number generator.
+      breakOffset: index,
+      breakIndex: 0,
     });
-  }
+  });
 
   // Tickets that were halted end up here, physically, so a stalled run looks
   // different from a finished one rather than merely stopping.
@@ -321,7 +329,9 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     paper.castShadow = true;
     paper.receiveShadow = true;
     paper.position.set(x, y, z);
-    paper.rotation.y = (rng() - 0.5) * 0.7;
+    // A fixed set of angles rather than a random one: nothing here needs to be
+    // unpredictable, it just needs to not look stacked by a machine.
+    paper.rotation.y = DROP_ANGLES[dropped.children.length % DROP_ANGLES.length];
     dropped.add(paper);
     emit({ type: 'dropped', at: where, count: dropped.children.length });
     return paper;
@@ -410,9 +420,6 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
   function resetOffice(newTicket = null) {
     loco.cancelAll();
     wanderEnabled = true;
-    // Rewind the random stream so a restart replays the run rather than
-    // carrying on from wherever the discarded one left it.
-    rng.reset?.();
 
     for (const rec of recs.values()) {
       rec.plan = null;
@@ -427,6 +434,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
       placeAtStation(rec.agent, HOME[rec.agent.id]);
       rec.activity = 'waiting';
       rec.detail = null;
+      rec.breakIndex = 0;
       refreshBadge(rec);
     }
 
@@ -435,8 +443,6 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
       child.geometry.dispose();
       child.material.dispose();
     }
-
-    rollWanderJitter();
 
     if (newTicket) {
       ticket = newTicket;
@@ -489,6 +495,43 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
 
   // --- idle quirks ---------------------------------------------------------
 
+  // Walks off to a named spot, stays a while, comes back. Shared by the idle
+  // behaviour and by scenarios staging a break deliberately.
+  function startBreak(rec, station, seconds) {
+    const id = rec.agent.id;
+    rec.idleFor = 0;
+    setActivity(id, 'onBreak', station.replace(/_/g, ' ').toUpperCase());
+    setPlan(rec, [
+      { kind: 'goto', station },
+      { kind: 'wait', seconds },
+      { kind: 'goto', station: HOME[id] },
+      { kind: 'do', fn: () => setActivity(id, 'waiting') },
+    ]);
+  }
+
+  /**
+   * Sends an agent off on a break now, regardless of how long it has been idle.
+   * This is how a scenario choreographs the office rather than waiting to see
+   * what the idle behaviour happens to do.
+   */
+  function takeBreak(agentId, station, seconds = BREAK_MIN) {
+    const rec = recs.get(agentId);
+    if (!rec) {
+      console.warn(`behaviour: unknown agent "${agentId}"`);
+      return;
+    }
+    if (!LAYOUT.stations[station]) {
+      console.warn(`behaviour: unknown station "${station}"`);
+      return;
+    }
+    rec.engaged = false;
+    startBreak(rec, station, seconds);
+  }
+
+  // Left alone long enough, an agent finds something else to do. Which thing is
+  // a rota rather than a dice roll: each agent starts at a different point in
+  // the list and works through it, so five people still head in five directions
+  // without anything being left to chance.
   function maybeWander(rec, dt) {
     if (!wanderEnabled) return;
     if (rec.engaged || rec.plan || loco.isBusy(rec.agent.id)) {
@@ -501,31 +544,20 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     }
 
     rec.idleFor += dt;
-    // A little jitter per agent, so five people do not all stand up for coffee
-    // on the same frame.
-    if (rec.idleFor < IDLE_AFTER + rec.wanderJitter) return;
+    // Staggered per agent, so five people do not all stand up on one frame.
+    if (rec.idleFor < IDLE_AFTER + rec.breakOffset * 2.6) return;
 
-    const station = BREAK_STATIONS[Math.floor(rng() * BREAK_STATIONS.length)];
-    const linger = BREAK_MIN + rng() * (BREAK_MAX - BREAK_MIN);
-    const name = station.replace(/_/g, ' ').toUpperCase();
+    const step = rec.breakOffset + rec.breakIndex;
+    rec.breakIndex += 1;
 
-    rec.idleFor = 0;
-    setActivity(rec.agent.id, 'onBreak', name);
-    setPlan(rec, [
-      { kind: 'goto', station },
-      { kind: 'wait', seconds: linger },
-      { kind: 'goto', station: HOME[rec.agent.id] },
-      { kind: 'do', fn: () => setActivity(rec.agent.id, 'waiting') },
-    ]);
+    startBreak(
+      rec,
+      BREAK_STATIONS[step % BREAK_STATIONS.length],
+      BREAK_MIN + (step % 3) * ((BREAK_MAX - BREAK_MIN) / 2)
+    );
   }
 
-  // Drawn from the seeded stream, and redrawn on reset, so a replayed run
-  // wanders in exactly the same order rather than merely similarly.
-  function rollWanderJitter() {
-    for (const rec of recs.values()) rec.wanderJitter = rng() * 7;
-  }
 
-  rollWanderJitter();
 
   // --- events --------------------------------------------------------------
 
@@ -569,6 +601,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     fire,
     block,
     deliver,
+    takeBreak,
     resetOffice,
     standDown,
     summonToBoard,

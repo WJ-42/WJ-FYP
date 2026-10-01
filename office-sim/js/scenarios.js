@@ -17,6 +17,12 @@
 // `escalation` fails the tests four times against a cap of three: the fourth is
 // substituted by the system for retry_cap_exceeded, which is the whole point of
 // the shared correction budget.
+//
+// Nothing here is random. A scenario can stage movement as well as ticket
+// events — `break` sends a named agent to a named spot for a set time — so what
+// an audience sees is composed rather than whatever a dice roll produced. The
+// idle behaviour that runs between staged beats is a rota rather than a random
+// choice, so a scenario plays the same way every time it is run.
 
 export const SCENARIOS = [
   {
@@ -179,9 +185,34 @@ export const SCENARIOS = [
       {
         at: 0,
         do: 'disperse',
-        note: 'No ticket in flight. Left alone, agents find something else to do.',
+        note: 'No ticket in flight. Left alone, the office finds other things to do.',
       },
-      { at: 25, note: 'They go to the kitchen, the water cooler, the sofa or the printer, then come back.' },
+      { at: 3, do: 'break', args: ['engineering-1', 'coffee', 10] },
+      {
+        at: 7,
+        do: 'break',
+        args: ['product-1', 'water_cooler', 8],
+        note: 'Product stops at the water cooler on the way past.',
+      },
+      {
+        at: 12,
+        do: 'break',
+        args: ['engineering-3', 'sofa', 14],
+        note: 'Engineering 3 takes the sofa.',
+      },
+      {
+        at: 19,
+        do: 'break',
+        args: ['cto-1', 'fridge', 9],
+        note: 'Even the CTO goes to the fridge.',
+      },
+      {
+        at: 27,
+        do: 'break',
+        args: ['engineering-2', 'break_table', 12],
+        note: 'Engineering 2 sits down at the kitchen table.',
+      },
+      { at: 45, note: 'Everyone drifts back to their own desk in their own time.' },
     ],
   },
 ];

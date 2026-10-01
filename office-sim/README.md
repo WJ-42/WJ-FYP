@@ -44,7 +44,7 @@ prototype runs offline and renders identically whenever it is revisited.
 | `esc` | close the inspector |
 | drag the progress bar | seek to any point in the scenario |
 | `←` / `→` | with the bar focused, seek 5s (hold shift for 1s); `home` / `end` jump to the ends |
-| drag the panel handles | resize the scenario and log panels, or the rail's width; double-click a handle to reset |
+| drag a panel's edge | resize the scenario panel and the event log independently — left edge for width, horizontal edge for height, corner for both; double-click a grip to reset it |
 
 The same controls are on screen in the Scenarios panel, which is the primary
 way in; the keys are a convenience.
@@ -68,7 +68,6 @@ way in; the keys are a convenience.
 | `?paused=1` | Load a scenario but hold it at the first frame |
 | `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
 | `?select=id` | Open the inspector on one agent, e.g. `?select=engineering-2` |
-| `?seed=n` | Seed for the office's randomness. The same seed replays the same run; the default is a fixed one |
 | `?seekTo=n` | Scrub to `n` seconds on load. The bar needs a pointer, so this is how seeking gets checked headlessly |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
@@ -114,7 +113,6 @@ the next starts.
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
 | `js/inspect.js` | Picking an agent out of the scene, the selection rings, and the inspector panel. |
 | `js/eventlog.js` | Reads the events the office already emits and renders them as a log. |
-| `js/rng.js` | Seeded random numbers, so a run can be replayed exactly. |
 | `js/panels.js` | Dragging the HUD panels to resize them, and remembering the sizes. |
 | `js/scenarios.js` | The scenario library, as data: each one a timeline of beats with captions. |
 | `js/player.js` | Playback: which scenario is loaded, where it has got to, and the transport over it. |
@@ -172,20 +170,27 @@ would be unreachable from itself.
 an agent half way across the office cannot be un-walked, and a merged ticket
 cannot be un-merged. So dragging the progress bar resets the office and re-runs
 the scenario at a fixed step up to the point asked for. That is only honest
-because of the seeding below — against `Math.random` the same seek would land
-somewhere slightly different every time, and scrubbing back and forth would
-quietly change the run underneath you. A seek to `n` lands in exactly the state
+because the office is deterministic, as below — if any of it were random, the
+same seek would land somewhere slightly different every time, and scrubbing back
+and forth would quietly change the run underneath you. A seek to `n` lands in exactly the state
 that playing through to `n` reaches, which is checkable with `?seekTo=n` against
 `?t=n`. A drag queues at most one seek per frame, so crossing the whole bar
 replays once per paint rather than once per pointer event.
 
-**The randomness is seeded.** Which break an idle agent wanders off to, how
-long it stays, how a dropped document lands — all of it comes from a seeded
-stream that is rewound whenever a scenario is loaded or restarted. Five agents
-still need to behave like five people rather than one, but almost everything
-here is checked by rendering a frame at a chosen moment and reading it, and two
-captures of the same scenario have to be the same picture or a screenshot
-proves nothing. `?seed=` picks a different run.
+**Nothing is random.** There was briefly a seeded random number generator here,
+which made runs repeatable but still left the choreography to chance. Preset is
+better than merely reproducible: a scenario can stage movement as well as ticket
+events, so what an audience sees is composed. The `break` action sends a named
+agent to a named spot for a set time, and the quiet-office scenario is written
+out beat by beat rather than left to emerge.
+
+The idle behaviour that fills the gaps between staged beats is a rota rather
+than a dice roll. Each agent starts at a different point in the list of break
+spots and works through it, so five people still head in five directions and a
+run still plays the same way every time. Which matters beyond neatness: almost
+everything here is checked by rendering a frame at a chosen moment and reading
+it, and two captures of the same scenario have to be the same picture or a
+screenshot proves nothing.
 
 **Selection is a ring on the floor, not a recoloured figure.** The shirt colour
 is the role tier and is the one thing a figure already tells you at a glance, so

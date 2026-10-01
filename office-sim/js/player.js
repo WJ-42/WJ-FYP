@@ -29,6 +29,7 @@ export function createPlayer({ bhv, loco, makeTicket, step, onChange = () => {} 
     goto: (id, station) => loco.goTo(id, station),
     deliver: (id, station) => bhv.deliver(id, station),
     block: (id, seconds, trigger) => bhv.block(id, seconds, trigger),
+    break: (id, station, seconds) => bhv.takeBreak(id, station, seconds),
   };
 
   function publish() {

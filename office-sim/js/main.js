@@ -20,8 +20,7 @@ import { SCENARIOS } from './scenarios.js';
 import { createPlayer, SPEEDS } from './player.js';
 import { createInspector } from './inspect.js';
 import { createEventLog } from './eventlog.js';
-import { createRng } from './rng.js';
-import { createResizableRail } from './panels.js';
+import { createPanelLayout } from './panels.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -56,11 +55,7 @@ const makeTicket = () =>
     assignee: params.get('assignee') || 'engineering-2',
   });
 
-// Seeded, so two captures of the same scenario are the same picture. ?seed=
-// changes which run you get; the default is simply a fixed one.
-const rng = createRng(Number(params.get('seed')) || 20261001);
-
-const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene, rng });
+const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene });
 bhv.setTicket(makeTicket());
 
 // --- Scenarios (Layer 5) ---------------------------------------------------
@@ -206,12 +201,23 @@ el.progress.addEventListener('keydown', (e) => {
   pendingSeek = keys[e.key];
 });
 
-// --- Resizable rail --------------------------------------------------------
-createResizableRail({
-  rail: document.getElementById('rail-right'),
-  topPanel: document.getElementById('scenarios'),
-  splitter: document.getElementById('rail-splitter'),
-  widthHandle: document.getElementById('rail-width'),
+// --- Resizable panels ------------------------------------------------------
+// Sized independently, and clamped against each other so neither can be buried.
+createPanelLayout({
+  scenarios: {
+    wrap: document.getElementById('wrap-scenarios'),
+    gripX: document.getElementById('grip-scenarios-x'),
+    gripY: document.getElementById('grip-scenarios-y'),
+    gripCorner: document.getElementById('grip-scenarios-c'),
+    storeKey: 'office-sim.panel.scenarios',
+  },
+  eventlog: {
+    wrap: document.getElementById('wrap-eventlog'),
+    gripX: document.getElementById('grip-eventlog-x'),
+    gripY: document.getElementById('grip-eventlog-y'),
+    gripCorner: document.getElementById('grip-eventlog-c'),
+    storeKey: 'office-sim.panel.eventlog',
+  },
 });
 
 // --- Observation (Layer 6) -------------------------------------------------

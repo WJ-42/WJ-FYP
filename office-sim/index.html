@@ -82,63 +82,117 @@
         width: min(320px, calc(50vw - 27px));
       }
 
-      #rail-right {
+      /* --- Resizable panels ------------------------------------------------ */
+
+      /* Each panel sits in a wrapper pinned to one corner, so the two can be
+         sized independently instead of sharing one column between them. */
+      .panel-wrap {
+        position: fixed;
+        z-index: 2;
         right: 18px;
-        bottom: 18px;
         width: min(390px, calc(50vw - 27px));
-        /* The splitter occupies the space between the panels, so the rail must
-           not add a gap of its own on top of it. */
-        gap: 0;
+        pointer-events: none;
       }
 
-      /* --- Resize handles -------------------------------------------------- */
-
-      .splitter {
+      .panel-wrap > .hud {
+        position: static;
+        width: 100%;
+        height: 100%;
         pointer-events: auto;
-        flex: 0 0 auto;
-        height: 12px;
-        cursor: ns-resize;
-        position: relative;
       }
 
-      .width-handle {
-        pointer-events: auto;
+      #wrap-scenarios {
+        top: 18px;
+      }
+
+      #wrap-eventlog {
+        bottom: 18px;
+      }
+
+      .grip {
         position: absolute;
-        left: -5px;
-        top: 0;
-        bottom: 0;
-        width: 10px;
-        cursor: ew-resize;
+        pointer-events: auto;
       }
 
-      /* The grip marks are drawn rather than bordered, so the hit area can stay
-         comfortably larger than the thing you can see. */
-      .splitter::after,
-      .width-handle::after {
+      /* The mark is drawn rather than bordered, so the hit area stays
+         comfortably larger than the thing you can see. Dark, not light: the
+         grips sit over the 3D scene rather than over a card, and the scene's
+         ground is pale. */
+      .grip::after {
         content: '';
         position: absolute;
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        /* Dark, not light: both grips sit over the 3D scene rather than over a
-           card, and the scene's ground is pale. */
         background: rgba(18, 21, 18, 0.5);
         border-radius: 2px;
       }
 
-      .splitter::after {
-        width: 38px;
-        height: 3px;
+      .grip:hover::after {
+        background: #6fe0d2;
       }
 
-      .width-handle::after {
+      .grip-x {
+        left: -5px;
+        top: 12px;
+        bottom: 12px;
+        width: 10px;
+        cursor: ew-resize;
+      }
+
+      .grip-x::after {
         width: 3px;
         height: 38px;
       }
 
-      .splitter:hover::after,
-      .width-handle:hover::after {
-        background: #6fe0d2;
+      /* 8px tall and offset by 9, so the scenario panel's bottom grip and the
+         log's top grip sit one above the other in the gap rather than on top of
+         each other. */
+      .grip-y {
+        left: 12px;
+        right: 12px;
+        height: 8px;
+        cursor: ns-resize;
+      }
+
+      .grip-y::after {
+        width: 38px;
+        height: 3px;
+      }
+
+      .grip-corner {
+        left: -5px;
+        width: 16px;
+        height: 16px;
+      }
+
+      .grip-corner::after {
+        width: 7px;
+        height: 7px;
+      }
+
+      #wrap-scenarios .grip-y {
+        bottom: -9px;
+      }
+
+      #wrap-eventlog .grip-y {
+        top: -9px;
+      }
+
+      #wrap-scenarios .grip-corner {
+        bottom: -5px;
+      }
+
+      #wrap-eventlog .grip-corner {
+        top: -5px;
+      }
+
+      #wrap-scenarios .grip-corner {
+        cursor: nesw-resize;
+      }
+
+      #wrap-eventlog .grip-corner {
+        cursor: nwse-resize;
       }
 
       .hud {
@@ -291,12 +345,7 @@
       /* Takes whatever height the scenario panel leaves, never less than
          enough for a few lines. */
       #eventlog {
-        /* Basis 0, not auto: with auto the log's own content length competes
-           with the scenario panel for space, and a long log squeezed the
-           scenario list down to two visible buttons on a tall window. Basis 0
-           means it takes only what is left over. */
-        flex: 1 1 0;
-        min-height: 110px;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -350,8 +399,6 @@
       /* Keeps its natural height, but scrolls rather than crushing the log off
          the bottom of a very short window. */
       #scenarios {
-        flex: 0 1 auto;
-        min-height: 0;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -497,11 +544,12 @@
       </div>
     </div>
 
-    <div class="rail" id="rail-right">
-      <!-- Drag to resize, double-click to reset. Sizes persist per browser. -->
-      <div class="width-handle" id="rail-width" title="Drag to resize · double-click to reset"></div>
-
-      <div class="hud" id="scenarios">
+    <!-- Each panel is sized on its own: drag its left edge, its horizontal
+         edge, or the corner between them. Double-click a grip to reset it.
+         The grips sit on the wrapper rather than inside the panel, because
+         the panels clip their own overflow and would cut them off. -->
+    <div class="panel-wrap" id="wrap-scenarios">
+<div class="hud" id="scenarios">
         <h2>Scenarios</h2>
         <!-- Buttons are generated from the library in scenarios.js, so the panel
              cannot fall out of step with what can actually be played. -->
@@ -532,13 +580,25 @@
 
         <p id="scenario-note" aria-live="polite">Pick a scenario to play it.</p>
       </div>
+      <div class="grip grip-x" id="grip-scenarios-x"
+           title="Drag to set the width · double-click to reset"></div>
+      <div class="grip grip-y" id="grip-scenarios-y"
+           title="Drag to set the height · double-click to reset"></div>
+      <div class="grip grip-corner" id="grip-scenarios-c"
+           title="Drag to resize · double-click to reset"></div>
+    </div>
 
-      <div class="splitter" id="rail-splitter" title="Drag to resize · double-click to reset"></div>
-
-      <div class="hud" id="eventlog">
+    <div class="panel-wrap" id="wrap-eventlog">
+<div class="hud" id="eventlog">
         <h2>Event log</h2>
         <div id="log-rows"></div>
       </div>
+      <div class="grip grip-x" id="grip-eventlog-x"
+           title="Drag to set the width · double-click to reset"></div>
+      <div class="grip grip-y" id="grip-eventlog-y"
+           title="Drag to set the height · double-click to reset"></div>
+      <div class="grip grip-corner" id="grip-eventlog-c"
+           title="Drag to resize · double-click to reset"></div>
     </div>
 
     <div class="hud" id="controls">
