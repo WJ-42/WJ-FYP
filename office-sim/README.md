@@ -40,6 +40,8 @@ prototype runs offline and renders identically whenever it is revisited.
 | `space` | play / pause |
 | `enter` | restart the current scenario |
 | `-` / `=` | slower / faster |
+| `click` | inspect an agent; click empty floor to deselect |
+| `esc` | close the inspector |
 
 The same controls are on screen in the Scenarios panel, which is the primary
 way in; the keys are a convenience.
@@ -62,6 +64,7 @@ way in; the keys are a convenience.
 | `?speed=n` | Playback speed: 0.5, 1, 2 or 4 |
 | `?paused=1` | Load a scenario but hold it at the first frame |
 | `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
+| `?select=id` | Open the inspector on one agent, e.g. `?select=engineering-2` |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
@@ -92,7 +95,7 @@ the next starts.
 | 3 | Navigation — nav grid, path following, walk animation, sit/stand | done |
 | 4 | Behaviour state machine, idle quirks, and the failure paths | done |
 | 5 | Scenario library with playback controls | done |
-| 6 | Observation — click an agent for role and current action, event log | |
+| 6 | Observation — click an agent for role and current action, event log | done |
 | 7 | Replace the scripted timeline with the live orchestrator websocket stream | deferred |
 
 ## Files
@@ -104,6 +107,8 @@ the next starts.
 | `js/agents.js` | The roster and placing it at stations. Identities match the orchestrator's real agent ids. |
 | `js/build.js` | Geometry builders that turn the layout into meshes. All primitives, no external assets. |
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
+| `js/inspect.js` | Picking an agent out of the scene, the selection rings, and the inspector panel. |
+| `js/eventlog.js` | Reads the events the office already emits and renders them as a log. |
 | `js/scenarios.js` | The scenario library, as data: each one a timeline of beats with captions. |
 | `js/player.js` | Playback: which scenario is loaded, where it has got to, and the transport over it. |
 | `js/tickets.js` | The ticket state machine, ported from the orchestrator's own `fsm.py`. |
@@ -155,6 +160,27 @@ width and the walk needs no separate collision pass. Run with `?nav=1` to see it
 a seated one, which means an agent begins and ends each trip standing inside a
 chair's own inflated footprint. Without a carve-out, every desk in the office
 would be unreachable from itself.
+
+**Selection is a ring on the floor, not a recoloured figure.** The shirt colour
+is the role tier and is the one thing a figure already tells you at a glance, so
+tinting it to show selection would overwrite the information the selection is
+meant to help you read. The ring takes the agent's own tier colour, and hover
+uses a thinner neutral one.
+
+**The event log is a reader, not a second source of truth.** `behaviour.js`
+already emits an event on every ticket transition, timeout, document drop and
+reset, so the panel subscribes rather than being told separately by whatever
+caused the change. Layer 7 swaps the scripted driver for the live orchestrator
+stream and the log keeps working, because it is watching the same events either
+way. Only activity changes that say something you could not guess from watching
+get a line; the rest would bury the transitions in noise.
+
+**Picking is the one thing a screenshot cannot check**, since it needs a
+pointer. `?select=` opens the inspector directly, and the diagnostics in a
+`?still=1` capture include a self test that projects each agent back to screen
+coordinates and picks there, reporting what it hit. Two agents standing on top
+of each other can legitimately shadow one another, so a mismatch there is worth
+reading rather than treating as an automatic failure.
 
 **The scenario library is a standing feature, not scaffolding.** It does not go
 away when Layer 7 brings in live data. A real run is slow, costs real money, and

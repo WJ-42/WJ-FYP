@@ -132,6 +132,133 @@
         color: #6f776d;
       }
 
+      /* --- Inspector ------------------------------------------------------ */
+
+      #inspector {
+        top: 112px;
+        left: 18px;
+        width: min(300px, calc(100vw - 36px));
+      }
+
+      .inspector-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 9px;
+      }
+
+      #inspect-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+      }
+
+      #inspector h2 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        flex: 1 1 auto;
+      }
+
+      #inspect-close {
+        font: inherit;
+        font-size: 15px;
+        line-height: 1;
+        color: var(--ink-soft);
+        background: none;
+        border: 0;
+        border-radius: 5px;
+        padding: 2px 5px;
+        cursor: pointer;
+      }
+
+      #inspect-close:hover {
+        color: var(--ink);
+        background: rgba(238, 241, 236, 0.12);
+      }
+
+      #inspect-close:focus-visible {
+        outline: 2px solid #6fe0d2;
+        outline-offset: 1px;
+      }
+
+      #inspect-body {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      #inspect-body dt {
+        color: var(--ink-soft);
+        white-space: nowrap;
+      }
+
+      #inspect-body dd {
+        margin: 0;
+        color: var(--ink);
+        word-break: break-word;
+      }
+
+      /* --- Event log ------------------------------------------------------ */
+
+      #eventlog {
+        right: 18px;
+        bottom: 18px;
+        width: min(390px, calc(100vw - 36px));
+        max-height: min(280px, 40vh);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      #eventlog h2 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      #log-rows {
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        /* Scrolls inside its own box; the page itself never scrolls. */
+        min-height: 0;
+      }
+
+      #log-rows:empty::after {
+        content: 'Nothing yet.';
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .log-row {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .log-time {
+        flex: 0 0 auto;
+        color: var(--ink-soft);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .log-text {
+        border-left: 2px solid;
+        padding-left: 7px;
+        color: var(--ink);
+        line-height: 1.45;
+      }
+
       /* --- Scenario panel ------------------------------------------------ */
 
       #scenarios {
@@ -241,7 +368,21 @@
 
     <div class="hud" id="title">
       <h1>Agent Office</h1>
-      <p><span class="layer">Layer 5</span> &middot; scenario library with playback controls</p>
+      <p><span class="layer">Layer 6</span> &middot; click an agent to inspect it</p>
+    </div>
+
+    <div class="hud" id="inspector" hidden>
+      <div class="inspector-head">
+        <span id="inspect-dot"></span>
+        <h2 id="inspect-name">—</h2>
+        <button id="inspect-close" type="button" aria-label="Close inspector">×</button>
+      </div>
+      <dl id="inspect-body"></dl>
+    </div>
+
+    <div class="hud" id="eventlog">
+      <h2>Event log</h2>
+      <div id="log-rows"></div>
     </div>
 
     <div class="hud" id="scenarios">
@@ -281,6 +422,8 @@
       <span><kbd>space</kbd>play / pause</span>
       <span><kbd>enter</kbd>restart</span>
       <span><kbd>-</kbd><kbd>=</kbd>speed</span>
+      <span><kbd>click</kbd>inspect an agent</span>
+      <span><kbd>esc</kbd>deselect</span>
     </div>
 
     <script type="module" src="./js/main.js"></script>

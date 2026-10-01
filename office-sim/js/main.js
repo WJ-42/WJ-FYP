@@ -18,6 +18,8 @@ import { createBehaviour, HOME } from './behaviour.js';
 import { createTicket } from './tickets.js';
 import { SCENARIOS } from './scenarios.js';
 import { createPlayer, SPEEDS } from './player.js';
+import { createInspector } from './inspect.js';
+import { createEventLog } from './eventlog.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -78,6 +80,9 @@ stage.onFrame((dt) => {
   loco.update(scaled);
   bhv.update(scaled);
   player.update(scaled);
+  // Not scaled: the rings follow wherever the figures ended up this frame, and
+  // the panel should keep responding while the office is paused.
+  inspector.update();
   updateProgress();
 });
 
@@ -118,13 +123,53 @@ for (const value of SPEEDS) {
 el.play.addEventListener('click', () => player.togglePaused());
 el.restart.addEventListener('click', () => player.restart());
 
+// --- Observation (Layer 6) -------------------------------------------------
+
+const labelFor = (id) => byId.get(id)?.spec.label ?? id;
+
+const log = createEventLog({
+  el: document.getElementById('log-rows'),
+  labelFor,
+  // Stamped with the scenario clock rather than wall time, so a line in the log
+  // can be matched against the moment in the scenario that produced it.
+  timeFn: () => player.state().elapsed,
+});
+
+// The office already emits everything worth recording, so the log is a reader
+// rather than a second source of truth. Layer 7 swaps the scripted driver for
+// the live stream and this keeps working unchanged.
+bhv.onEvent((event) => log.record(event));
+
+const inspector = createInspector({
+  stage,
+  agents,
+  bhv,
+  loco,
+  el: {
+    panel: document.getElementById('inspector'),
+    name: document.getElementById('inspect-name'),
+    dot: document.getElementById('inspect-dot'),
+    body: document.getElementById('inspect-body'),
+    close: document.getElementById('inspect-close'),
+  },
+});
+
 function clock(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+let lastNote = null;
+
 function renderPanel(state) {
+  // The scenario's own captions belong in the log too, so the narration and the
+  // events it describes sit on one timeline rather than two.
+  if (state.note && state.note !== lastNote) {
+    lastNote = state.note;
+    log.note(state.note);
+  }
+
   for (const button of el.list.children) {
     button.setAttribute('aria-pressed', String(button.dataset.id === state.id));
   }
@@ -201,6 +246,10 @@ if (wanted) player.load(wanted);
 
 if (params.get('paused') === '1') player.setPaused(true);
 
+// ?select=engineering-2 opens the inspector on one agent, which is also how a
+// still capture gets a populated panel to look at.
+if (params.get('select')) inspector.select(params.get('select'));
+
 // ?goto=cto-1:board_present;engineering-2:coffee drives locomotion directly,
 // bypassing the behaviour model. Kept for checking routing in isolation.
 const goto = params.get('goto');
@@ -258,6 +307,8 @@ window.addEventListener('keydown', (e) => {
     player.togglePaused();
   } else if (e.key === 'Enter') {
     player.restart();
+  } else if (e.key === 'Escape') {
+    inspector.select(null);
   } else if (e.key === '-') {
     player.nudgeSpeed(-1);
   } else if (e.key === '=' || e.key === '+') {
@@ -330,6 +381,10 @@ if (still) {
           escalations: `${ticket.escalationCount}/${ticket.escalationCap}`,
         },
         dropped: bhv.droppedCount(),
+        // Layer 6: picking, selection and the log.
+        selected: inspector.selected()?.id ?? null,
+        logEntries: log.count(),
+        pick: inspector.selfTest(),
         player: {
           scenario: p.id,
           elapsed: +p.elapsed.toFixed(1),
@@ -348,4 +403,4 @@ if (still) {
 }
 
 // Handy for poking at the model from the devtools console.
-window.SIM = { stage, office, agents, byId, nav, loco, bhv, player };
+window.SIM = { stage, office, agents, byId, nav, loco, bhv, player, inspector, log };
