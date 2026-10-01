@@ -65,6 +65,7 @@ way in; the keys are a convenience.
 | `?paused=1` | Load a scenario but hold it at the first frame |
 | `?restartAt=n` | Press Restart `n` seconds in, so the reset path can be checked headlessly |
 | `?select=id` | Open the inspector on one agent, e.g. `?select=engineering-2` |
+| `?seed=n` | Seed for the office's randomness. The same seed replays the same run; the default is a fixed one |
 | `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
@@ -109,6 +110,7 @@ the next starts.
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
 | `js/inspect.js` | Picking an agent out of the scene, the selection rings, and the inspector panel. |
 | `js/eventlog.js` | Reads the events the office already emits and renders them as a log. |
+| `js/rng.js` | Seeded random numbers, so a run can be replayed exactly. |
 | `js/scenarios.js` | The scenario library, as data: each one a timeline of beats with captions. |
 | `js/player.js` | Playback: which scenario is loaded, where it has got to, and the transport over it. |
 | `js/tickets.js` | The ticket state machine, ported from the orchestrator's own `fsm.py`. |
@@ -160,6 +162,14 @@ width and the walk needs no separate collision pass. Run with `?nav=1` to see it
 a seated one, which means an agent begins and ends each trip standing inside a
 chair's own inflated footprint. Without a carve-out, every desk in the office
 would be unreachable from itself.
+
+**The randomness is seeded.** Which break an idle agent wanders off to, how
+long it stays, how a dropped document lands — all of it comes from a seeded
+stream that is rewound whenever a scenario is loaded or restarted. Five agents
+still need to behave like five people rather than one, but almost everything
+here is checked by rendering a frame at a chosen moment and reading it, and two
+captures of the same scenario have to be the same picture or a screenshot
+proves nothing. `?seed=` picks a different run.
 
 **Selection is a ring on the floor, not a recoloured figure.** The shirt colour
 is the role tier and is the one thing a figure already tells you at a glance, so

@@ -196,9 +196,3 @@ export const LAYOUT = {
     backlog: { at: [12.7, -7.9], look: [12.7, -8.9], zone: 'backlog' },
   },
 };
-
-// Convenience: zone rect lookup by id
-export function zoneRect(id) {
-  const z = LAYOUT.zones.find((z) => z.id === id);
-  return z ? z.rect : null;
-}

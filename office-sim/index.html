@@ -51,6 +51,43 @@
         cursor: grabbing;
       }
 
+      /* The two side rails. Panels used to be positioned individually with
+         hardcoded offsets, which collided the moment the viewport got short:
+         at 1280x700 the scenario panel sat on top of the event log. Stacking
+         them in a flex column that spans the available height instead means
+         they share the space rather than guessing at each other's size.
+
+         Both rails are capped at half the viewport width so the left and right
+         sides can never meet in the middle either. */
+      .rail {
+        position: fixed;
+        z-index: 2;
+        top: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        /* The rail is a layout box, not a surface: without this the empty gap
+           between panels would swallow drags meant for the camera. */
+        pointer-events: none;
+      }
+
+      .rail > .hud {
+        position: static;
+        width: auto;
+        pointer-events: auto;
+      }
+
+      #rail-left {
+        left: 18px;
+        width: min(320px, calc(50vw - 27px));
+      }
+
+      #rail-right {
+        right: 18px;
+        bottom: 18px;
+        width: min(390px, calc(50vw - 27px));
+      }
+
       .hud {
         position: fixed;
         z-index: 2;
@@ -62,11 +99,6 @@
         -webkit-backdrop-filter: blur(9px);
         padding: 12px 14px;
         user-select: none;
-      }
-
-      #title {
-        top: 18px;
-        left: 18px;
       }
 
       #title h1 {
@@ -134,11 +166,8 @@
 
       /* --- Inspector ------------------------------------------------------ */
 
-      #inspector {
-        top: 112px;
-        left: 18px;
-        width: min(300px, calc(100vw - 36px));
-      }
+      /* Sits in the left rail under the title, so it no longer depends on
+         guessing how tall the title card happens to be. */
 
       .inspector-head {
         display: flex;
@@ -206,11 +235,15 @@
 
       /* --- Event log ------------------------------------------------------ */
 
+      /* Takes whatever height the scenario panel leaves, never less than
+         enough for a few lines. */
       #eventlog {
-        right: 18px;
-        bottom: 18px;
-        width: min(390px, calc(100vw - 36px));
-        max-height: min(280px, 40vh);
+        /* Basis 0, not auto: with auto the log's own content length competes
+           with the scenario panel for space, and a long log squeezed the
+           scenario list down to two visible buttons on a tall window. Basis 0
+           means it takes only what is left over. */
+        flex: 1 1 0;
+        min-height: 110px;
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -261,10 +294,12 @@
 
       /* --- Scenario panel ------------------------------------------------ */
 
+      /* Keeps its natural height, but scrolls rather than crushing the log off
+         the bottom of a very short window. */
       #scenarios {
-        top: 18px;
-        right: 18px;
-        width: min(320px, calc(100vw - 36px));
+        flex: 0 1 auto;
+        min-height: 0;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -279,9 +314,14 @@
         color: var(--ink-soft);
       }
 
+      /* Only the list of scenarios scrolls. Letting the whole panel scroll put
+         the transport controls below the fold on a short window, hiding the one
+         thing most worth reaching. */
       #scenario-list {
         display: grid;
         gap: 4px;
+        overflow-y: auto;
+        min-height: 0;
       }
 
       #scenarios button {
@@ -366,46 +406,50 @@
   <body>
     <canvas id="view"></canvas>
 
-    <div class="hud" id="title">
-      <h1>Agent Office</h1>
-      <p><span class="layer">Layer 6</span> &middot; click an agent to inspect it</p>
+    <div class="rail" id="rail-left">
+      <div class="hud" id="title">
+        <h1>Agent Office</h1>
+        <p><span class="layer">Layer 6</span> &middot; click an agent to inspect it</p>
+      </div>
+
+      <div class="hud" id="inspector" hidden>
+        <div class="inspector-head">
+          <span id="inspect-dot"></span>
+          <h2 id="inspect-name">—</h2>
+          <button id="inspect-close" type="button" aria-label="Close inspector">×</button>
+        </div>
+        <dl id="inspect-body"></dl>
+      </div>
     </div>
 
-    <div class="hud" id="inspector" hidden>
-      <div class="inspector-head">
-        <span id="inspect-dot"></span>
-        <h2 id="inspect-name">—</h2>
-        <button id="inspect-close" type="button" aria-label="Close inspector">×</button>
-      </div>
-      <dl id="inspect-body"></dl>
-    </div>
+    <div class="rail" id="rail-right">
+      <div class="hud" id="scenarios">
+        <h2>Scenarios</h2>
+        <!-- Buttons are generated from the library in scenarios.js, so the panel
+             cannot fall out of step with what can actually be played. -->
+        <div id="scenario-list"></div>
 
-    <div class="hud" id="eventlog">
-      <h2>Event log</h2>
-      <div id="log-rows"></div>
-    </div>
+        <div class="transport">
+          <button id="btn-play" type="button">Pause</button>
+          <button id="btn-restart" type="button">Restart</button>
+          <span class="speeds" id="speeds" role="group" aria-label="Playback speed"></span>
+        </div>
 
-    <div class="hud" id="scenarios">
-      <h2>Scenarios</h2>
-      <!-- Buttons are generated from the library in scenarios.js, so the panel
-           cannot fall out of step with what can actually be played. -->
-      <div id="scenario-list"></div>
+        <div id="scenario-progress">
+          <div id="scenario-bar"></div>
+        </div>
+        <div id="scenario-meta">
+          <span id="scenario-name">—</span>
+          <span id="scenario-time">0:00 / 0:00</span>
+        </div>
 
-      <div class="transport">
-        <button id="btn-play" type="button">Pause</button>
-        <button id="btn-restart" type="button">Restart</button>
-        <span class="speeds" id="speeds" role="group" aria-label="Playback speed"></span>
+        <p id="scenario-note" aria-live="polite">Pick a scenario to play it.</p>
       </div>
 
-      <div id="scenario-progress">
-        <div id="scenario-bar"></div>
+      <div class="hud" id="eventlog">
+        <h2>Event log</h2>
+        <div id="log-rows"></div>
       </div>
-      <div id="scenario-meta">
-        <span id="scenario-name">—</span>
-        <span id="scenario-time">0:00 / 0:00</span>
-      </div>
-
-      <p id="scenario-note" aria-live="polite">Pick a scenario to play it.</p>
     </div>
 
     <div class="hud" id="controls">

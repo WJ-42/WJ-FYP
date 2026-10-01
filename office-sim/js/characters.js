@@ -592,5 +592,3 @@ export function makeAgent(spec) {
   applyPose(agent, 'standing');
   return agent;
 }
-
-export { P as PROPORTIONS };

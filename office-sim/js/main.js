@@ -14,12 +14,13 @@ import { spawnAgents, setLabelsVisible } from './agents.js';
 import { setBadgesVisible } from './characters.js';
 import { buildNav, buildNavOverlay, createPathOverlay } from './nav.js';
 import { createLocomotion } from './locomotion.js';
-import { createBehaviour, HOME } from './behaviour.js';
+import { createBehaviour, BOARD_PLACES, HOME } from './behaviour.js';
 import { createTicket } from './tickets.js';
 import { SCENARIOS } from './scenarios.js';
 import { createPlayer, SPEEDS } from './player.js';
 import { createInspector } from './inspect.js';
 import { createEventLog } from './eventlog.js';
+import { createRng } from './rng.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -54,7 +55,11 @@ const makeTicket = () =>
     assignee: params.get('assignee') || 'engineering-2',
   });
 
-const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene });
+// Seeded, so two captures of the same scenario are the same picture. ?seed=
+// changes which run you get; the default is simply a fixed one.
+const rng = createRng(Number(params.get('seed')) || 20261001);
+
+const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene, rng });
 bhv.setTicket(makeTicket());
 
 // --- Scenarios (Layer 5) ---------------------------------------------------
@@ -138,7 +143,13 @@ const log = createEventLog({
 // The office already emits everything worth recording, so the log is a reader
 // rather than a second source of truth. Layer 7 swaps the scripted driver for
 // the live stream and this keeps working unchanged.
-bhv.onEvent((event) => log.record(event));
+bhv.onEvent((event) => {
+  // A reset empties the log, so the next caption has to be allowed through
+  // again even when it repeats the last one: restarting the same scenario
+  // otherwise began with no summary line at all.
+  if (event.type === 'reset') lastNote = null;
+  log.record(event);
+});
 
 const inspector = createInspector({
   stage,
@@ -253,7 +264,12 @@ if (params.get('select')) inspector.select(params.get('select'));
 // ?goto=cto-1:board_present;engineering-2:coffee drives locomotion directly,
 // bypassing the behaviour model. Kept for checking routing in isolation.
 const goto = params.get('goto');
-if (goto === 'home') {
+// Stand the behaviour model down first, or the plan implied by the ticket's
+// opening state re-steers whoever it considers the active agent.
+if (goto) bhv.standDown();
+if (goto === 'board') {
+  sendAll(BOARD_PLACES);
+} else if (goto === 'home') {
   sendAll(HOME);
 } else if (goto) {
   for (const pair of goto.split(';')) {

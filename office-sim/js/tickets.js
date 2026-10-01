@@ -37,6 +37,10 @@ export const ACTIVE_ROLE_FOR_STATUS = {
   [STATUS.ESCALATED]: 'cto',
 };
 
+// The table below, and the budget constants under it, are exported even though
+// nothing outside this file reads them. They are the mirror of fsm.py's own
+// public names, and keeping the shapes side by side is what makes the two
+// auditable against each other. They are documentation, not dead code.
 export const TRANSITIONS = [
   { from: STATUS.INTAKE, to: STATUS.BACKLOG, trigger: 'decomposed' },
   { from: STATUS.BACKLOG, to: STATUS.SPECD, trigger: 'spec_ready' },
@@ -135,8 +139,4 @@ export function applyTrigger(ticket, trigger) {
   const from = ticket.status;
   ticket.status = t.to;
   return { from, to: t.to, trigger: effective, overrodeFrom, requiresApproval: !!t.requiresApproval };
-}
-
-export function triggersFrom(status) {
-  return TRANSITIONS.filter((t) => t.from === status).map((t) => t.trigger);
 }

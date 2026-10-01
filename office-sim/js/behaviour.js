@@ -36,6 +36,11 @@ const STUCK_SECONDS = 9; // how long a timed-out agent stands there before givin
 // in the same direction.
 const BREAK_STATIONS = ['coffee', 'fridge', 'water_cooler', 'break_table', 'sofa', 'printer'];
 
+// Errands that end by putting an object down somewhere. A ticket changing
+// state must not interrupt one, or the document is left in a hand with
+// nothing that would ever resolve it.
+const ON_AN_ERRAND = new Set(['delivering', 'parking']);
+
 // Where the listeners stand when the CTO is scoping at the board.
 export const BOARD_PLACES = {
   'cto-1': 'board_present',
@@ -71,6 +76,9 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
   scene.add(dropped);
 
   let ticket = null;
+  // Cleared by standDown(), so a raw routing test is not pulled apart by
+  // agents deciding to go and make coffee halfway through it.
+  let wanderEnabled = true;
   const listeners = [];
 
   // --- badges --------------------------------------------------------------
@@ -294,12 +302,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     // LISTENING badge long after the meeting that put them there has ended.
     // A break is left alone: someone already at the coffee machine when the
     // ticket moved on has not been summoned back by it.
-    // An errand already under way is left to finish. Delivering a spec and
-    // walking a halted ticket to the backlog both end by putting an object
-    // down somewhere; interrupting one half way would leave the document in
-    // the agent's hand with nothing ever to resolve it.
-    const ON_AN_ERRAND = new Set(['delivering', 'parking']);
-
+    // An errand already under way is left to finish.
     if (status !== STATUS.DONE) {
       for (const [id, rec] of recs) {
         if (rec.engaged || rec.activity === 'onBreak' || rec.activity === 'waiting') continue;
@@ -376,6 +379,29 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
   }
 
   /**
+   * Hands control back: clears every plan, timer and engagement without moving
+   * anyone, and stops the idle wandering. The ?goto= debug route uses this so
+   * that driving locomotion directly really does bypass the behaviour model,
+   * rather than racing a plan the current ticket state implies.
+   */
+  function standDown() {
+    wanderEnabled = false;
+    for (const rec of recs.values()) {
+      rec.plan = null;
+      rec.planIdx = 0;
+      rec.stepStarted = false;
+      rec.waitLeft = 0;
+      rec.engaged = false;
+      rec.idleFor = 0;
+      rec.timer = null;
+      setAgentTimer(rec.agent, null);
+      rec.activity = 'waiting';
+      rec.detail = null;
+      refreshBadge(rec);
+    }
+  }
+
+  /**
    * Puts the office back to how it started, instantly rather than by walking
    * everyone home — a restart should look like a cut, not like a scenario of
    * its own. Anything in flight is abandoned first, or an agent half way across
@@ -383,6 +409,10 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
    */
   function resetOffice(newTicket = null) {
     loco.cancelAll();
+    wanderEnabled = true;
+    // Rewind the random stream so a restart replays the run rather than
+    // carrying on from wherever the discarded one left it.
+    rng.reset?.();
 
     for (const rec of recs.values()) {
       rec.plan = null;
@@ -405,6 +435,8 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
       child.geometry.dispose();
       child.material.dispose();
     }
+
+    rollWanderJitter();
 
     if (newTicket) {
       ticket = newTicket;
@@ -458,6 +490,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
   // --- idle quirks ---------------------------------------------------------
 
   function maybeWander(rec, dt) {
+    if (!wanderEnabled) return;
     if (rec.engaged || rec.plan || loco.isBusy(rec.agent.id)) {
       rec.idleFor = 0;
       return;
@@ -486,7 +519,13 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     ]);
   }
 
-  for (const rec of recs.values()) rec.wanderJitter = rng() * 7;
+  // Drawn from the seeded stream, and redrawn on reset, so a replayed run
+  // wanders in exactly the same order rather than merely similarly.
+  function rollWanderJitter() {
+    for (const rec of recs.values()) rec.wanderJitter = rng() * 7;
+  }
+
+  rollWanderJitter();
 
   // --- events --------------------------------------------------------------
 
@@ -531,6 +570,7 @@ export function createBehaviour({ agents, byId, loco, scene, rng = Math.random }
     block,
     deliver,
     resetOffice,
+    standDown,
     summonToBoard,
     disperse,
     onEvent,

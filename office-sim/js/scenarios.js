@@ -112,7 +112,7 @@ export const SCENARIOS = [
   {
     id: 'escalation',
     name: 'Escalation to the CTO',
-    summary: 'Four failures against a budget of three, so the system escalates instead of retrying.',
+    summary: 'Four failures against a budget of three: the system escalates, then the CTO overrules it.',
     beats: [
       { at: 0, do: 'fire', args: ['decomposed'] },
       { at: 1, do: 'fire', args: ['spec_ready'] },
@@ -130,6 +130,15 @@ export const SCENARIOS = [
         args: ['tests_failed'],
         note: 'A fourth failure. The orchestrator overrules it and escalates instead — the engineer carries the ticket to the CTO.',
       },
+      {
+        at: 45,
+        do: 'fire',
+        args: ['cto_override'],
+        note: 'The CTO overrules the escalation and hands the work back with a fresh set of attempts. That reset is itself capped, at two overrides per ticket, or this edge could loop forever too.',
+      },
+      { at: 54, do: 'fire', args: ['code_submission'], note: 'The next attempt is submitted.' },
+      { at: 59, do: 'fire', args: ['tests_passed'], note: 'This time the tests pass, and it goes to review.' },
+      { at: 66, do: 'fire', args: ['approved'], note: 'Approved and merged. A ticket can come back from an escalation.' },
     ],
   },
 
