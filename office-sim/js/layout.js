@@ -57,6 +57,16 @@ export const LAYOUT = {
       color: 'kitchen',
       labelAt: [11.0, 5.9],
     },
+    // Where work that did not finish ends up. Layer 4 walks a halted ticket
+    // here and leaves it on the floor by the cabinet, so a run that stalls
+    // looks different from one that completes rather than just stopping.
+    {
+      id: 'backlog',
+      label: 'BACKLOG',
+      rect: [10.8, -D, W, -7.0],
+      color: 'backlog',
+      labelAt: [12.4, -7.5],
+    },
   ],
 
   // Wall segments as centre-lines. Door gaps are simply absent segments —
@@ -165,6 +175,16 @@ export const LAYOUT = {
     water_cooler: { at: [-1.6, 7.8], look: [-1.6, 6.6], zone: 'eng' },
     printer: { at: [-12.0, 0.0], look: [-13.3, 0.0], zone: 'eng' },
     sofa: { at: [-7.6, 7.3], look: [-7.6, 5.9], seated: true, zone: 'eng' },
+
+    // Layer 4 destinations for the paths a ticket takes when it does not
+    // simply succeed.
+    //
+    // `cto_visitor` is the spot an engineer stands on to escalate: inside the
+    // CTO's office, beside the desk rather than behind it, so the two read as
+    // having a conversation instead of one standing in the other.
+    cto_visitor: { at: [-8.6, -6.4], look: [-10.4, -6.8], zone: 'cto' },
+    // `backlog` faces the cabinet, because a halted ticket gets put down here.
+    backlog: { at: [12.7, -7.9], look: [12.7, -8.9], zone: 'backlog' },
   },
 };
 

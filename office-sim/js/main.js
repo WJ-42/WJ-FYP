@@ -11,9 +11,12 @@
 
 import { createStage } from './scene.js';
 import { buildOffice } from './build.js';
-import { spawnAgents, setLabelsVisible, ROSTER } from './agents.js';
+import { spawnAgents, setLabelsVisible } from './agents.js';
+import { setBadgesVisible } from './characters.js';
 import { buildNav, buildNavOverlay, createPathOverlay } from './nav.js';
 import { createLocomotion } from './locomotion.js';
+import { createBehaviour, BOARD_PLACES, HOME } from './behaviour.js';
+import { createTicket } from './tickets.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -39,26 +42,117 @@ stage.scene.add(pathOverlay.group);
 const loco = createLocomotion(agents, nav, { pathOverlay });
 stage.onFrame((dt) => loco.update(dt));
 
-// Where everyone gathers when summoned to the board, and where they live. The
-// presenter spot and the listener ring are both named in layout.js.
-const BOARD_PLACES = {
-  'cto-1': 'board_present',
-  'product-1': 'board_seat_2',
-  'engineering-1': 'board_seat_1',
-  'engineering-2': 'board_seat_3',
-  'engineering-3': 'board_seat_4',
-};
-
-const HOME_PLACES = Object.fromEntries(ROSTER.map((r) => [r.id, r.station]));
-
 function sendAll(places) {
   for (const [id, station] of Object.entries(places)) {
     if (byId.has(id)) loco.goTo(id, station);
   }
 }
 
+// --- Layer 4: behaviour ---------------------------------------------------
+const ticket = createTicket({
+  id: params.get('ticket') || 'FYP-42',
+  title: 'Demonstration ticket',
+  assignee: params.get('assignee') || 'engineering-2',
+});
+
+const bhv = createBehaviour({ agents, byId, loco, scene: stage.scene });
+stage.onFrame((dt) => bhv.update(dt));
+bhv.setTicket(ticket);
+
+// A timed driver for exercising this layer, not a scenario library: Layer 5
+// owns those, along with playback controls and the choreography to go with
+// them. These exist so each failure path can be triggered and watched now.
+//
+// The paths are the orchestrator's real ones. `escalation` fails the tests four
+// times against a cap of three, so the fourth is overridden by the system into
+// retry_cap_exceeded rather than another retry — which is the behaviour the
+// shared correction budget exists to produce.
+const DEMOS = {
+  happy: [
+    [0.4, () => bhv.summonToBoard()],
+    [10, () => bhv.fire('decomposed')],
+    [16, () => bhv.fire('spec_ready')],
+    [21, () => bhv.fire('assigned')],
+    [27, () => bhv.fire('code_submission')],
+    [31, () => bhv.fire('tests_passed')],
+    [37, () => bhv.fire('approved')],
+  ],
+  retry: [
+    [0.4, () => bhv.fire('decomposed')],
+    [1, () => bhv.fire('spec_ready')],
+    [2, () => bhv.fire('assigned')],
+    [8, () => bhv.fire('code_submission')],
+    [12, () => bhv.fire('tests_failed')],
+    [20, () => bhv.fire('code_submission')],
+    [24, () => bhv.fire('tests_failed')],
+    [32, () => bhv.fire('code_submission')],
+    [36, () => bhv.fire('tests_passed')],
+  ],
+  timeout: [
+    [0.4, () => bhv.fire('decomposed')],
+    [1, () => bhv.fire('spec_ready')],
+    [2, () => bhv.fire('assigned')],
+    [8, () => bhv.fire('code_submission')],
+    // A sandbox test run that never comes back. When the timer runs out the
+    // orchestrator's own failure edge takes over.
+    [10, () => bhv.block(ticket.assignee, 9, 'tests_failed')],
+  ],
+  escalation: [
+    [0.4, () => bhv.fire('decomposed')],
+    [1, () => bhv.fire('spec_ready')],
+    [2, () => bhv.fire('assigned')],
+    [6, () => bhv.fire('code_submission')],
+    [9, () => bhv.fire('tests_failed')],
+    [13, () => bhv.fire('code_submission')],
+    [16, () => bhv.fire('tests_failed')],
+    [20, () => bhv.fire('code_submission')],
+    [23, () => bhv.fire('tests_failed')],
+    [27, () => bhv.fire('code_submission')],
+    [30, () => bhv.fire('tests_failed')], // budget gone: becomes retry_cap_exceeded
+  ],
+  halt: [
+    [0.4, () => bhv.fire('decomposed')],
+    [1, () => bhv.fire('spec_ready')],
+    [2, () => bhv.fire('assigned')],
+    [4, () => bhv.fire('code_submission')],
+    [6, () => bhv.fire('tests_failed')],
+    [8, () => bhv.fire('code_submission')],
+    [10, () => bhv.fire('tests_failed')],
+    [12, () => bhv.fire('code_submission')],
+    [14, () => bhv.fire('tests_failed')],
+    [16, () => bhv.fire('code_submission')],
+    [18, () => bhv.fire('tests_failed')], // -> escalated
+    [26, () => bhv.fire('cto_cannot_resolve')], // -> halted, walked to the backlog
+  ],
+};
+
+let demoSteps = null;
+let demoAt = 0;
+let demoClock = 0;
+
+function startDemo(name) {
+  const steps = DEMOS[name];
+  if (!steps) {
+    console.warn(`main: no demo named "${name}"`);
+    return;
+  }
+  demoSteps = steps;
+  demoAt = 0;
+  demoClock = 0;
+}
+
+stage.onFrame((dt) => {
+  if (!demoSteps) return;
+  demoClock += dt;
+  while (demoAt < demoSteps.length && demoSteps[demoAt][0] <= demoClock) {
+    demoSteps[demoAt][1]();
+    demoAt += 1;
+  }
+});
+
 const markers = office.getObjectByName('stationMarkers');
 let labelsVisible = true;
+let badgesVisible = true;
 
 // ?anchors=1 shows the station rings on load — handy when checking that the
 // anchors Layers 2-5 depend on actually land on chairs and doorways.
@@ -90,11 +184,20 @@ if (params.get('paths') === '1') {
 
 // ?goto=cto-1:board_present;engineering-2:coffee sends agents somewhere on load.
 // ?goto=board and ?goto=home are shorthands for the two full-office moves.
+// ?badges=0 hides the activity badges, for a cleaner shot of the room.
+if (params.get('badges') === '0') {
+  setBadgesVisible(agents, false);
+  document.getElementById('hint-badges').classList.add('off');
+}
+
+// ?demo=happy|retry|timeout|escalation|halt runs one of the Layer 4 paths.
+if (params.get('demo')) startDemo(params.get('demo'));
+
 const goto = params.get('goto');
 if (goto === 'board') {
   sendAll(BOARD_PLACES);
 } else if (goto === 'home') {
-  sendAll(HOME_PLACES);
+  sendAll(HOME);
 } else if (goto) {
   for (const pair of goto.split(';')) {
     const [id, station] = pair.split(':');
@@ -132,10 +235,16 @@ window.addEventListener('keydown', (e) => {
   } else if (key === 'p') {
     pathOverlay.group.visible = !pathOverlay.group.visible;
     document.getElementById('hint-paths').classList.toggle('on', pathOverlay.group.visible);
+  } else if (key === 'b') {
+    badgesVisible = !badgesVisible;
+    setBadgesVisible(agents, badgesVisible);
+    document.getElementById('hint-badges').classList.toggle('off', !badgesVisible);
   } else if (key === '1') {
-    sendAll(BOARD_PLACES);
+    bhv.summonToBoard();
   } else if (key === '0') {
-    sendAll(HOME_PLACES);
+    bhv.disperse();
+  } else if (key >= '2' && key <= '6') {
+    startDemo(['happy', 'retry', 'timeout', 'escalation', 'halt'][Number(key) - 2]);
   }
 });
 
@@ -189,7 +298,20 @@ if (still) {
           pose: a.pose,
           mode: loco.modeOf(a.id),
           station: loco.stationOf(a.id),
+          // Layer 4: what the office thinks each agent is doing.
+          activity: bhv.stateOf(a.id)?.activity ?? null,
+          badge: a.badgeText,
+          carrying: a.isCarrying,
+          timer: a.timerBar.visible ? +a.timerBar.userData.drawn.toFixed(2) : null,
         })),
+        ticket: {
+          id: ticket.id,
+          status: ticket.status,
+          assignee: ticket.assignee,
+          retry: `${ticket.retryCount}/${ticket.retryCap}`,
+          escalations: `${ticket.escalationCount}/${ticket.escalationCap}`,
+        },
+        backlogDropped: bhv.droppedCount(),
       });
       document.body.appendChild(el);
     })
@@ -199,4 +321,4 @@ if (still) {
 }
 
 // Handy for poking at the model from the devtools console.
-window.SIM = { stage, office, agents, byId, nav, loco };
+window.SIM = { stage, office, agents, byId, nav, loco, bhv, ticket, startDemo };

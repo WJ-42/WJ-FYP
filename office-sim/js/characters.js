@@ -112,6 +112,187 @@ function makeLabel(text, tierColor) {
   return sprite;
 }
 
+// A smaller pill than the name tag, used for the activity badge. Rebuilt from
+// scratch whenever the text changes, which is on a state change rather than on
+// a frame, so the cost does not matter.
+function makeBadgeSprite(text, accentHex) {
+  const dpr = 2;
+  const fontPx = 19 * dpr;
+  const padX = 13 * dpr;
+  const padY = 8 * dpr;
+  const bar = 5 * dpr;
+  const gap = 8 * dpr;
+
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = `700 ${fontPx}px "JetBrains Mono", ui-monospace, monospace`;
+  const textW = measure.measureText(text).width;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(padX * 2 + bar + gap + textW);
+  canvas.height = Math.ceil(padY * 2 + fontPx);
+  const ctx = canvas.getContext('2d');
+
+  const r = 7 * dpr;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.arcTo(canvas.width, 0, canvas.width, canvas.height, r);
+  ctx.arcTo(canvas.width, canvas.height, 0, canvas.height, r);
+  ctx.arcTo(0, canvas.height, 0, 0, r);
+  ctx.arcTo(0, 0, canvas.width, 0, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(12, 14, 12, 0.9)';
+  ctx.fill();
+
+  const accent = `#${accentHex.toString(16).padStart(6, '0')}`;
+  ctx.fillStyle = accent;
+  ctx.fillRect(padX, padY, bar, canvas.height - padY * 2);
+
+  ctx.font = measure.font;
+  ctx.fillStyle = '#eef1ec';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, padX + bar + gap, canvas.height / 2 + 1);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  const h = 0.2;
+  sprite.scale.set((canvas.width / canvas.height) * h, h, 1);
+  return sprite;
+}
+
+/**
+ * Sets the activity badge above an agent's name tag. Passing a null label
+ * hides it, which is how an agent with nothing worth saying stays uncluttered.
+ */
+export function setAgentBadge(agent, text, accentHex) {
+  const holder = agent.badgeHolder;
+  if (agent.badge) {
+    holder.remove(agent.badge);
+    agent.badge.material.map.dispose();
+    agent.badge.material.dispose();
+    agent.badge = null;
+  }
+  agent.badgeText = text ?? null;
+  if (!text) return;
+  const sprite = makeBadgeSprite(text, accentHex);
+  holder.add(sprite);
+  agent.badge = sprite;
+}
+
+const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
+
+function roundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+// A progress bar for the one thing a badge cannot show: how long an agent has
+// been stuck.
+//
+// Drawn into a canvas and shown as a textured sprite, which is the same shape
+// as the name tag because that is what demonstrably renders here. An earlier
+// attempt built it from two plain untextured sprites and nothing appeared on
+// screen at all, even with the fill width updating correctly underneath.
+function makeTimerBar() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 32;
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  const h = 0.075;
+  sprite.scale.set((canvas.width / canvas.height) * h, h, 1);
+  sprite.visible = false;
+  sprite.userData = { canvas, tex, drawn: -1 };
+  return sprite;
+}
+
+/**
+ * Shows the stuck timer at `progress` (0..1), or hides it when passed null.
+ * The bar turns from amber to red past three quarters, because a timer about
+ * to expire should not read the same as one that has just started.
+ */
+export function setAgentTimer(agent, progress) {
+  const sprite = agent.timerBar;
+  if (progress == null) {
+    sprite.visible = false;
+    return;
+  }
+
+  const t = Math.max(0, Math.min(1, progress));
+  sprite.visible = true;
+
+  // Redrawn only when the value actually moves, rather than every frame.
+  const ud = sprite.userData;
+  if (Math.abs(t - ud.drawn) < 0.01) return;
+  ud.drawn = t;
+
+  const { canvas } = ud;
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  roundRect(ctx, 0, 0, W, H, H / 2);
+  ctx.fillStyle = 'rgba(12, 14, 12, 0.9)';
+  ctx.fill();
+
+  const pad = 5;
+  const fw = (W - pad * 2) * t;
+  if (fw > 1) {
+    roundRect(ctx, pad, pad, fw, H - pad * 2, (H - pad * 2) / 2);
+    ctx.fillStyle = hex(t > 0.75 ? PALETTE.status.alert : PALETTE.status.waiting);
+    ctx.fill();
+  }
+
+  ud.tex.needsUpdate = true;
+}
+
+// The ticket as a physical object. Carrying it is what makes "Product dropped
+// the spec at an engineer's desk" and "the CTO walked it back to the backlog"
+// readable as events rather than as two people walking about.
+function makeCarriedTicket() {
+  const g = new THREE.Group();
+  g.visible = false;
+  const paper = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.012, 0.28),
+    new THREE.MeshStandardMaterial({ color: PALETTE.ticketPaper, roughness: 0.9 })
+  );
+  paper.castShadow = true;
+  g.add(paper);
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(0.205, 0.004, 0.285),
+    new THREE.MeshStandardMaterial({ color: PALETTE.ticketEdge, roughness: 0.9 })
+  );
+  edge.position.y = -0.008;
+  g.add(edge);
+  return g;
+}
+
+export function setAgentCarrying(agent, carrying) {
+  agent.carried.visible = !!carrying;
+  agent.isCarrying = !!carrying;
+}
+
+export function setBadgesVisible(agents, visible) {
+  for (const agent of agents) agent.badgeHolder.visible = visible;
+}
+
 // Poses are plain joint-rotation sets. Adding a new one (walking, presenting)
 // means adding rotations here, not new geometry.
 //
@@ -366,9 +547,43 @@ export function makeAgent(spec) {
   label.position.y = P.headR + 0.3;
   head.add(label);
 
+  // Layer 4's readouts stack upward from the name tag: what the agent is doing,
+  // and above that the stuck timer when one is running. Both hang off the head
+  // for the same reason the name tag does — a fixed height off the floor would
+  // strand them above a seated figure.
+  // The name tag is 0.26 tall and the badge 0.2, so their half-heights alone
+  // come to 0.23: at a 0.24 gap they touched and the badge clipped the name.
+  const badgeHolder = new THREE.Group();
+  badgeHolder.position.y = P.headR + 0.62;
+  head.add(badgeHolder);
+
+  const timerBar = makeTimerBar();
+  timerBar.position.y = P.headR + 0.8;
+  head.add(timerBar);
+
+  // Carried in the right hand, at the end of the forearm, so it follows the
+  // arm through the walk cycle instead of floating alongside the body.
+  const carried = makeCarriedTicket();
+  carried.position.set(0, -P.foreArm - 0.03, -0.07);
+  carried.rotation.x = 0.25;
+  joints.armForeR.add(carried);
+
   if (spec.heightScale) root.scale.setScalar(spec.heightScale);
 
-  const agent = { id: spec.id, spec, root, joints, label, pose: 'standing' };
+  const agent = {
+    id: spec.id,
+    spec,
+    root,
+    joints,
+    label,
+    badgeHolder,
+    badge: null,
+    badgeText: null,
+    timerBar,
+    carried,
+    isCarrying: false,
+    pose: 'standing',
+  };
 
   // Everything downstream identifies an agent by this, including Layer 6's
   // click-to-inspect, which will raycast and walk up to the nearest root.

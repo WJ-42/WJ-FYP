@@ -18,7 +18,26 @@ export const PALETTE = {
     eng: 0xccd5de,
     product: 0xd9cfe3,
     kitchen: 0xe3dcc6,
+    backlog: 0xdcd3cd,
   },
+
+  // Activity badge colours (Layer 4). Deliberately a small set rather than one
+  // hue per ticket state: nine colours would be unreadable at this camera
+  // distance, so the badge carries the state as text and the colour says only
+  // how much attention it wants. `active` and `waiting` are lifted from the 2D
+  // dashboard's accent and tier-3 tokens so the two views agree.
+  status: {
+    idle: 0x6b7a8f,
+    active: 0x5b8def,
+    rest: 0xc9a35f,
+    waiting: 0xe2a53a,
+    alert: 0xe5533d,
+    halted: 0x7d5f5f,
+  },
+
+  // A ticket as a physical object: carried in hand, or left at the backlog.
+  ticketPaper: 0xfaf8f2,
+  ticketEdge: 0xc8c3b4,
 
   // Walls are deliberately low (see LAYOUT.wallHeight) so the angled camera
   // always sees over them. Two tones read as a lit top face vs shaded side.

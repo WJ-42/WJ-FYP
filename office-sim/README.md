@@ -35,12 +35,14 @@ prototype runs offline and renders identically whenever it is revisited.
 | `L` | toggle name tags |
 | `N` | toggle the nav grid, every cell an agent may not stand in |
 | `P` | toggle the route each walking agent is following |
+| `B` | toggle the activity badges |
 | `1` | send everyone to the drawing board |
 | `0` | send everyone back to their desks |
+| `2`–`6` | run one of the ticket paths: happy, retry, timeout, escalation, halt |
 
-`1` and `0` are a test harness for Layer 3, not a scenario. Layer 5 owns scripted
-choreography and its playback controls; these two keys exist only so a walk can
-be triggered and watched before that exists.
+These keys are a test harness, not a scenario library. Layer 5 owns scripted
+choreography and its playback controls; these exist only so each path can be
+triggered and watched before that exists.
 
 ### URL parameters
 
@@ -55,6 +57,9 @@ be triggered and watched before that exists.
 | `?goto=...` | Send agents somewhere on load. `?goto=board` and `?goto=home` move everyone; `?goto=cto-1:break_table;product-1:coffee` addresses them individually as `agentId:station` |
 | `?still=1` | Draw a single frame instead of running the loop, and expose it for capture (see below) |
 | `?t=n` | Wind the simulation forward `n` seconds before drawing. Only meaningful with `?still=1`, and the only way to capture a walk part-way through a stride |
+| `?badges=0` | Hide the activity badges |
+| `?demo=...` | Run one ticket path on load: `happy`, `retry`, `timeout`, `escalation`, `halt` |
+| `?ticket=`, `?assignee=` | The ticket id and which engineering instance holds it (default `FYP-42`, `engineering-2`) |
 
 ### Capturing a frame
 
@@ -82,7 +87,7 @@ the next starts.
 | 1 | Static office shell — floor plan, low walls, furniture, zones, camera | done |
 | 2 | The five agents as people, colour-coded by tier, at their home stations | done |
 | 3 | Navigation — nav grid, path following, walk animation, sit/stand | done |
-| 4 | Behaviour state machine and idle quirks (coffee, fridge, water cooler) | |
+| 4 | Behaviour state machine, idle quirks, and the failure paths | done |
 | 5 | Scripted scenario: ticket scoping at the drawing board, with playback controls | |
 | 6 | Observation — click an agent for role and current action, event log | |
 | 7 | Replace the scripted timeline with the live orchestrator websocket stream | deferred |
@@ -96,6 +101,8 @@ the next starts.
 | `js/agents.js` | The roster and placing it at stations. Identities match the orchestrator's real agent ids. |
 | `js/build.js` | Geometry builders that turn the layout into meshes. All primitives, no external assets. |
 | `js/palette.js` | Every colour in one place, including the role-tier colours shared with the 2D dashboard. |
+| `js/tickets.js` | The ticket state machine, ported from the orchestrator's own `fsm.py`. |
+| `js/behaviour.js` | What each agent is doing and why: the ticket-driven states, the idle quirks, and the failure paths. |
 | `js/nav.js` | The walkable area, derived from the floor plan and the built geometry. A* over it, plus the debug overlays. |
 | `js/locomotion.js` | Moving one agent to a named station: the rise/walk/turn/sit state machine, and the stride. |
 | `js/scene.js` | Renderer, orthographic camera, lighting, camera controls, frame loop. |
@@ -143,6 +150,34 @@ width and the walk needs no separate collision pass. Run with `?nav=1` to see it
 a seated one, which means an agent begins and ends each trip standing inside a
 chair's own inflated footprint. Without a carve-out, every desk in the office
 would be unreachable from itself.
+
+**The states are the orchestrator's own, not a parallel invention.**
+`js/tickets.js` is a port of `src/wjfyp/orchestrator/fsm.py`: the same nine
+statuses, the same transition table, the same role-per-status map, and the same
+budget overrides. That means the office animates `awaiting_test` rather than
+something called "testing", and that an engineer's fourth failed test against a
+cap of three produces `retry_cap_exceeded` and an escalation rather than a
+fourth retry — because that substitution is what the real loop does. Layer 7
+swaps the scripted driver for the live event stream, and the vocabulary already
+matches, so there is no mapping layer in between to get wrong. The copy has to
+be kept in step by hand until then; anything in `tickets.js` that disagrees with
+`fsm.py` is a bug in `tickets.js`.
+
+**The failure paths get as much attention as the happy one.** A visualization
+that only ever showed a ticket being scoped and merged would misrepresent a
+system whose interesting behaviour is mostly what it does when something goes
+wrong. So a retry shows the shared correction budget counting down on the
+engineer's badge, a timeout leaves them stuck at their desk under a filling
+timer, an escalation walks them into the CTO's office carrying the ticket, and a
+halt walks the ticket to the backlog and puts it down, where it stays for the
+rest of the run.
+
+**Behaviour sequences are polled, never chained on promises.** An errand like
+"carry this to the backlog, put it down, walk back" is a list of steps that
+`update()` advances. The reason is the headless capture: `?t=` winds the
+simulation forward inside a synchronous loop, and a promise chain would not run
+at all until that loop finished, so none of these paths could be verified from a
+screenshot.
 
 **Stride length and hip dip are derived from the rig, not tuned by eye.** A leg
 swung forward is geometrically shorter in Y than a vertical one, so unless the
