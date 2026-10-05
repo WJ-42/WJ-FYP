@@ -1675,7 +1675,8 @@ document.getElementById("roles-pills").addEventListener("click", e => {
 async function deleteRole(roleId) {
   const response = await fetch(`/api/roles/${roleId}`, { method: "DELETE" });
   if (!response.ok) {
-    alert(`Couldn't delete role: ${response.statusText}`);
+    const body = await response.json().catch(() => ({}));
+    alert(`Couldn't delete role: ${body.detail || response.statusText}`);
     return;
   }
   loadRoles();
@@ -1741,7 +1742,7 @@ function setLiveState(connected) {
 }
 
 function connectWebSocket() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => setLiveState(true);
   ws.onmessage = ev => {
     const { type, data } = JSON.parse(ev.data);

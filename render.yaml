@@ -1,0 +1,20 @@
+# Render Blueprint: one web service serving the dashboard at / and the 3D
+# office view at /office. Read-only demo, seeded from deploy/demo-eventlog.db
+# (the free tier has no persistent disk, so it resets on every deploy).
+services:
+  - type: web
+    name: wjfyp
+    runtime: python
+    plan: free
+    buildCommand: pip install ".[api]"
+    startCommand: python -m wjfyp.api.server
+    healthCheckPath: /api/tickets
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: HOST
+        value: 0.0.0.0
+      - key: WJFYP_READ_ONLY
+        value: "1"
+      - key: WJFYP_EVENT_LOG
+        value: deploy/demo-eventlog.db

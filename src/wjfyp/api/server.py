@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -15,6 +16,10 @@ from wjfyp.models.agent import RoleConfig
 from wjfyp.orchestrator.fsm import next_state
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Repo checkout root: src/wjfyp/api/server.py -> three parents up. The 3D
+# office view is plain static files, so a hosted build serves it from here.
+OFFICE_SIM_DIR = Path(__file__).resolve().parents[3] / "office-sim"
+READ_ONLY_DETAIL = "This is a read-only demo - changes are disabled."
 
 
 class RoleWriteRequest(BaseModel):
@@ -36,13 +41,17 @@ class DecisionRequest(BaseModel):
     notes: str | None = None
 
 
-def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
+def create_app(event_log: EventLog, poll_interval: float = 0.5, read_only: bool = False) -> FastAPI:
     """The dashboard's backend: a thin read API over EventLog plus a
     websocket that polls it for new rows and pushes them out, per the
     "all views are just renderers over the one event stream" design.
     Polling (not a push hook from the orchestrator) because the
     orchestrator loop and this server are meant to run as separate
     processes against the same SQLite file, not share in-process state.
+
+    With read_only=True every write endpoint (role create/edit/delete,
+    ticket decisions) refuses with 403, for a public hosted demo where
+    the UI should be showable but not actually usable.
     """
     connections: set[WebSocket] = set()
 
@@ -76,6 +85,10 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
 
+    def _refuse_if_read_only() -> None:
+        if read_only:
+            raise HTTPException(status_code=403, detail=READ_ONLY_DETAIL)
+
     # async def, not def: Starlette runs sync ("def") path operations in
     # a worker-thread pool, but the sqlite3 connection inside event_log
     # was opened on the main thread and (without check_same_thread=False,
@@ -103,6 +116,7 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
 
     @app.post("/api/roles", status_code=201)
     async def create_role(body: RoleWriteRequest) -> dict:
+        _refuse_if_read_only()
         if body.id in _preset_ids() or event_log.get_custom_role(body.id) is not None:
             raise HTTPException(status_code=409, detail=f"role id already exists: {body.id!r}")
         role = RoleConfig(**body.model_dump(), is_preset=False)
@@ -111,6 +125,7 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
 
     @app.put("/api/roles/{role_id}")
     async def update_role(role_id: str, body: RoleWriteRequest) -> dict:
+        _refuse_if_read_only()
         if role_id in _preset_ids():
             raise HTTPException(status_code=400, detail="preset roles can't be edited")
         if event_log.get_custom_role(role_id) is None:
@@ -126,6 +141,7 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
 
     @app.delete("/api/roles/{role_id}", status_code=204)
     async def delete_role(role_id: str) -> None:
+        _refuse_if_read_only()
         if role_id in _preset_ids():
             raise HTTPException(status_code=400, detail="preset roles can't be deleted")
         if not event_log.delete_custom_role(role_id):
@@ -133,6 +149,7 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
 
     @app.post("/api/tickets/{ticket_id}/decision")
     async def record_decision(ticket_id: str, body: DecisionRequest) -> dict:
+        _refuse_if_read_only()
         ticket = event_log.get_ticket(ticket_id)
         if ticket is None:
             raise HTTPException(status_code=404, detail=f"no such ticket: {ticket_id!r}")
@@ -157,6 +174,10 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5) -> FastAPI:
         except WebSocketDisconnect:
             connections.discard(websocket)
 
+    # Before the "/" catch-all, or it would swallow /office.
+    if OFFICE_SIM_DIR.is_dir():
+        app.mount("/office", StaticFiles(directory=OFFICE_SIM_DIR, html=True), name="office")
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
     return app
@@ -168,8 +189,15 @@ def main() -> None:
     from wjfyp.config import load_settings
 
     settings = load_settings()
-    event_log = EventLog(settings.event_log.path)
-    uvicorn.run(create_app(event_log), host="127.0.0.1", port=8000)
+    # Env overrides are for hosting (Render sets PORT and needs 0.0.0.0);
+    # the defaults keep the local `python -m wjfyp.api.server` behaviour.
+    event_log = EventLog(os.environ.get("WJFYP_EVENT_LOG", settings.event_log.path))
+    read_only = os.environ.get("WJFYP_READ_ONLY") == "1"
+    uvicorn.run(
+        create_app(event_log, read_only=read_only),
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8000")),
+    )
 
 
 if __name__ == "__main__":
