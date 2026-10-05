@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Office — top-down simulation</title>
+
+    <!-- Three.js is vendored locally (office-sim/vendor) so this prototype runs
+         offline and stays reproducible for the write-up. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js",
+          "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+        }
+      }
+    </script>
+
+    <style>
+      :root {
+        --ink: #eef1ec;
+        /* Soft ink and card opacity are tuned together: the card composites over
+           a light 3D scene, so a dimmer grey here drops below 4.5:1 in practice. */
+        --ink-soft: #c3cbc0;
+        --card: rgba(18, 21, 18, 0.84);
+        --line: rgba(238, 241, 236, 0.14);
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #c9cfc6;
+        font-family: var(--mono);
+      }
+
+      #view {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        cursor: grab;
+      }
+
+      #view:active {
+        cursor: grabbing;
+      }
+
+      /* The two side rails. Panels used to be positioned individually with
+         hardcoded offsets, which collided the moment the viewport got short:
+         at 1280x700 the scenario panel sat on top of the event log. Stacking
+         them in a flex column that spans the available height instead means
+         they share the space rather than guessing at each other's size.
+
+         Both rails are capped at half the viewport width so the left and right
+         sides can never meet in the middle either. */
+      .rail {
+        position: fixed;
+        z-index: 2;
+        top: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        /* The rail is a layout box, not a surface: without this the empty gap
+           between panels would swallow drags meant for the camera. */
+        pointer-events: none;
+      }
+
+      .rail > .hud {
+        position: static;
+        width: auto;
+        pointer-events: auto;
+      }
+
+      #rail-left {
+        left: 18px;
+        width: min(320px, calc(50vw - 27px));
+      }
+
+      /* --- Resizable panels ------------------------------------------------ */
+
+      /* Each panel sits in a wrapper pinned to one corner, so the two can be
+         sized independently instead of sharing one column between them. */
+      .panel-wrap {
+        position: fixed;
+        z-index: 2;
+        right: 18px;
+        width: min(390px, calc(50vw - 27px));
+        pointer-events: none;
+      }
+
+      .panel-wrap > .hud {
+        position: static;
+        width: 100%;
+        height: 100%;
+        pointer-events: auto;
+      }
+
+      #wrap-scenarios {
+        top: 18px;
+      }
+
+      #wrap-eventlog {
+        bottom: 18px;
+      }
+
+      .grip {
+        position: absolute;
+        pointer-events: auto;
+      }
+
+      /* The mark is drawn rather than bordered, so the hit area stays
+         comfortably larger than the thing you can see. Dark, not light: the
+         grips sit over the 3D scene rather than over a card, and the scene's
+         ground is pale. */
+      .grip::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(18, 21, 18, 0.5);
+        border-radius: 2px;
+      }
+
+      .grip:hover::after {
+        background: #6fe0d2;
+      }
+
+      .grip-x {
+        left: -5px;
+        top: 12px;
+        bottom: 12px;
+        width: 10px;
+        cursor: ew-resize;
+      }
+
+      .grip-x::after {
+        width: 3px;
+        height: 38px;
+      }
+
+      /* 8px tall and offset by 9, so the scenario panel's bottom grip and the
+         log's top grip sit one above the other in the gap rather than on top of
+         each other. */
+      .grip-y {
+        left: 12px;
+        right: 12px;
+        height: 8px;
+        cursor: ns-resize;
+      }
+
+      .grip-y::after {
+        width: 38px;
+        height: 3px;
+      }
+
+      .grip-corner {
+        left: -5px;
+        width: 16px;
+        height: 16px;
+      }
+
+      .grip-corner::after {
+        width: 7px;
+        height: 7px;
+      }
+
+      #wrap-scenarios .grip-y {
+        bottom: -9px;
+      }
+
+      #wrap-eventlog .grip-y {
+        top: -9px;
+      }
+
+      #wrap-scenarios .grip-corner {
+        bottom: -5px;
+      }
+
+      #wrap-eventlog .grip-corner {
+        top: -5px;
+      }
+
+      #wrap-scenarios .grip-corner {
+        cursor: nesw-resize;
+      }
+
+      #wrap-eventlog .grip-corner {
+        cursor: nwse-resize;
+      }
+
+      .hud {
+        position: fixed;
+        z-index: 2;
+        color: var(--ink);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        backdrop-filter: blur(9px);
+        -webkit-backdrop-filter: blur(9px);
+        padding: 12px 14px;
+        user-select: none;
+      }
+
+      #title h1 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      #title p {
+        margin: 6px 0 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--ink-soft);
+        letter-spacing: 0.02em;
+      }
+
+      #title .layer {
+        color: var(--ink);
+      }
+
+      #controls {
+        bottom: 18px;
+        left: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        font-size: 13px;
+        color: var(--ink-soft);
+        letter-spacing: 0.02em;
+        max-width: min(560px, calc(100vw - 36px));
+      }
+
+      #controls span {
+        white-space: nowrap;
+      }
+
+      kbd {
+        font: inherit;
+        color: var(--ink);
+        background: rgba(238, 241, 236, 0.1);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 5px;
+        margin-right: 4px;
+      }
+
+      #hint-anchors.on {
+        color: #ff9d8a;
+      }
+
+      #hint-nav.on {
+        color: #ff9d8a;
+      }
+
+      #hint-paths.on {
+        color: #6fe0d2;
+      }
+
+      #hint-labels.off,
+      #hint-badges.off {
+        color: #6f776d;
+      }
+
+      /* --- Inspector ------------------------------------------------------ */
+
+      /* Sits in the left rail under the title, so it no longer depends on
+         guessing how tall the title card happens to be. */
+
+      .inspector-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 9px;
+      }
+
+      #inspect-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+      }
+
+      #inspector h2 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        flex: 1 1 auto;
+      }
+
+      #inspect-close {
+        font: inherit;
+        font-size: 15px;
+        line-height: 1;
+        color: var(--ink-soft);
+        background: none;
+        border: 0;
+        border-radius: 5px;
+        padding: 2px 5px;
+        cursor: pointer;
+      }
+
+      #inspect-close:hover {
+        color: var(--ink);
+        background: rgba(238, 241, 236, 0.12);
+      }
+
+      #inspect-close:focus-visible {
+        outline: 2px solid #6fe0d2;
+        outline-offset: 1px;
+      }
+
+      #inspect-body {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      #inspect-body dt {
+        color: var(--ink-soft);
+        white-space: nowrap;
+      }
+
+      #inspect-body dd {
+        margin: 0;
+        color: var(--ink);
+        word-break: break-word;
+      }
+
+      /* --- Event log ------------------------------------------------------ */
+
+      /* Takes whatever height the scenario panel leaves, never less than
+         enough for a few lines. */
+      #eventlog {
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      #eventlog h2 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      #log-rows {
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        /* Scrolls inside its own box; the page itself never scrolls. */
+        min-height: 0;
+      }
+
+      #log-rows:empty::after {
+        content: 'Nothing yet.';
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .log-row {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .log-time {
+        flex: 0 0 auto;
+        color: var(--ink-soft);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .log-text {
+        border-left: 2px solid;
+        padding-left: 7px;
+        color: var(--ink);
+        line-height: 1.45;
+      }
+
+      /* --- Scenario panel ------------------------------------------------ */
+
+      /* Keeps its natural height, but scrolls rather than crushing the log off
+         the bottom of a very short window. */
+      #scenarios {
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      #scenarios h2 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      /* Only the list of scenarios scrolls. Letting the whole panel scroll put
+         the transport controls below the fold on a short window, hiding the one
+         thing most worth reaching. */
+      #scenario-list {
+        display: grid;
+        gap: 4px;
+        overflow-y: auto;
+        min-height: 0;
+      }
+
+      #scenarios button {
+        font: inherit;
+        font-size: 13px;
+        color: var(--ink);
+        background: rgba(238, 241, 236, 0.06);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 7px 9px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      #scenarios button:hover {
+        background: rgba(238, 241, 236, 0.13);
+      }
+
+      /* Never rely on the hover tint alone to show which one is playing. */
+      #scenarios button[aria-pressed='true'] {
+        background: rgba(111, 224, 210, 0.18);
+        border-color: rgba(111, 224, 210, 0.55);
+      }
+
+      #scenarios button:focus-visible {
+        outline: 2px solid #6fe0d2;
+        outline-offset: 2px;
+      }
+
+      .transport {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .transport button {
+        text-align: center !important;
+        padding: 6px 10px !important;
+      }
+
+      .speeds {
+        display: flex;
+        gap: 2px;
+        margin-left: auto;
+      }
+
+      .speeds button {
+        padding: 6px 7px !important;
+        font-size: 12px !important;
+      }
+
+      /* A 4px bar is too thin to hit reliably, so the control is 14px tall and
+         only the track inside it is drawn. */
+      #scenario-progress {
+        height: 14px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        border-radius: 3px;
+        touch-action: none;
+      }
+
+      #scenario-progress:focus-visible {
+        outline: 2px solid #6fe0d2;
+        outline-offset: 2px;
+      }
+
+      #scenario-track {
+        width: 100%;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(238, 241, 236, 0.13);
+        overflow: hidden;
+      }
+
+      #scenario-progress:hover #scenario-track,
+      #scenario-progress:focus-visible #scenario-track {
+        height: 6px;
+      }
+
+      #scenario-bar {
+        height: 100%;
+        width: 0;
+        background: #6fe0d2;
+      }
+
+      #scenario-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: var(--ink-soft);
+      }
+
+      #scenario-note {
+        margin: 0;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+
+    <div class="rail" id="rail-left">
+      <div class="hud" id="title">
+        <h1>Agent Office</h1>
+        <p><span class="layer">Layer 6</span> &middot; click an agent to inspect it</p>
+      </div>
+
+      <div class="hud" id="inspector" hidden>
+        <div class="inspector-head">
+          <span id="inspect-dot"></span>
+          <h2 id="inspect-name">—</h2>
+          <button id="inspect-close" type="button" aria-label="Close inspector">×</button>
+        </div>
+        <dl id="inspect-body"></dl>
+      </div>
+    </div>
+
+    <!-- Each panel is sized on its own: drag its left edge, its horizontal
+         edge, or the corner between them. Double-click a grip to reset it.
+         The grips sit on the wrapper rather than inside the panel, because
+         the panels clip their own overflow and would cut them off. -->
+    <div class="panel-wrap" id="wrap-scenarios">
+<div class="hud" id="scenarios">
+        <h2>Scenarios</h2>
+        <!-- Buttons are generated from the library in scenarios.js, so the panel
+             cannot fall out of step with what can actually be played. -->
+        <div id="scenario-list"></div>
+
+        <div class="transport">
+          <button id="btn-play" type="button">Pause</button>
+          <button id="btn-restart" type="button">Restart</button>
+          <span class="speeds" id="speeds" role="group" aria-label="Playback speed"></span>
+        </div>
+
+        <div
+          id="scenario-progress"
+          role="slider"
+          tabindex="0"
+          aria-label="Scenario position"
+          aria-valuemin="0"
+          aria-valuemax="0"
+          aria-valuenow="0"
+          aria-valuetext="0:00"
+        >
+          <div id="scenario-track"><div id="scenario-bar"></div></div>
+        </div>
+        <div id="scenario-meta">
+          <span id="scenario-name">—</span>
+          <span id="scenario-time">0:00 / 0:00</span>
+        </div>
+
+        <p id="scenario-note" aria-live="polite">Pick a scenario to play it.</p>
+      </div>
+      <div class="grip grip-x" id="grip-scenarios-x"
+           title="Drag to set the width · double-click to reset"></div>
+      <div class="grip grip-y" id="grip-scenarios-y"
+           title="Drag to set the height · double-click to reset"></div>
+      <div class="grip grip-corner" id="grip-scenarios-c"
+           title="Drag to resize · double-click to reset"></div>
+    </div>
+
+    <div class="panel-wrap" id="wrap-eventlog">
+<div class="hud" id="eventlog">
+        <h2>Event log</h2>
+        <div id="log-rows"></div>
+      </div>
+      <div class="grip grip-x" id="grip-eventlog-x"
+           title="Drag to set the width · double-click to reset"></div>
+      <div class="grip grip-y" id="grip-eventlog-y"
+           title="Drag to set the height · double-click to reset"></div>
+      <div class="grip grip-corner" id="grip-eventlog-c"
+           title="Drag to resize · double-click to reset"></div>
+    </div>
+
+    <div class="hud" id="controls">
+      <span><kbd>drag</kbd>pan</span>
+      <span><kbd>scroll</kbd>zoom</span>
+      <span><kbd>right-drag</kbd>rotate</span>
+      <span><kbd>R</kbd>reset view</span>
+      <span id="hint-anchors"><kbd>G</kbd>station anchors</span>
+      <span id="hint-labels"><kbd>L</kbd>name tags</span>
+      <span id="hint-nav"><kbd>N</kbd>nav grid</span>
+      <span id="hint-paths"><kbd>P</kbd>routes</span>
+      <span id="hint-badges"><kbd>B</kbd>activity</span>
+      <span><kbd>1</kbd>–<kbd>6</kbd>scenarios</span>
+      <span><kbd>space</kbd>play / pause</span>
+      <span><kbd>enter</kbd>restart</span>
+      <span><kbd>-</kbd><kbd>=</kbd>speed</span>
+      <span><kbd>click</kbd>inspect an agent</span>
+      <span><kbd>esc</kbd>deselect</span>
+    </div>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
