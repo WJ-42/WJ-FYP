@@ -6,7 +6,7 @@ services:
     name: wjfyp
     runtime: python
     plan: free
-    buildCommand: pip install ".[api]"
+    buildCommand: pip install -e ".[api]"
     startCommand: python -m wjfyp.api.server
     healthCheckPath: /api/tickets
     envVars:
