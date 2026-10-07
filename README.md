@@ -4,11 +4,16 @@ CS3IP final year project: LLM-based multi-agent simulation of a software company
 
 ## Documentation
 
-This repo holds the code only. Design documentation and project history live on Confluence and Jira, not as files in this repo:
+This repo holds the code only. Design documentation and project history live on Notion, and implementation work is tracked on Trello, not as files in this repo:
 
-- [CS3IP Project Brief](https://finalyearprojectwj.atlassian.net/wiki/spaces/FYP/pages/2293762/CS3IP+Project+Brief), the frozen architecture reference
-- [CS3IP Project Diary](https://finalyearprojectwj.atlassian.net/wiki/spaces/FYP/pages/2326529/CS3IP+Project+Diary), the running log of decisions, research, and scope changes
-- [Jira board](https://finalyearprojectwj.atlassian.net/jira/software/projects/FYP/boards/1), tracking implementation work
+- [CS3IP Project Brief](https://app.notion.com/p/3eb700bf6c908168af6de4e44ffcb845), the frozen architecture reference
+- [CS3IP Project Diary](https://app.notion.com/p/3eb700bf6c90811396dbdb7bf98c0957), the running log of decisions, research, and scope changes
+- [Trello board](https://trello.com/b/D2cK6985/fyp), tracking implementation work
+
+## Live deployments
+
+- [Dashboard](https://wjfyp.onrender.com/), the deployed 2D dashboard (chat feed, kanban board, roles editor)
+- [3D office visualization](https://wjfyp.onrender.com/office/), the deployed top-down 3D office view
 
 ## Structure
 
