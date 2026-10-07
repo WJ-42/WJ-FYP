@@ -298,6 +298,46 @@
         flex: 1 1 auto;
       }
 
+      #view-switch {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+      }
+
+      #view-switch a {
+        flex: 1;
+        text-align: center;
+        padding: 7px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        text-decoration: none;
+        transition: text-shadow 0.15s ease;
+      }
+
+      #view-switch a + a {
+        position: relative;
+        margin-left: 8px;
+      }
+
+      #view-switch a + a::before {
+        content: "";
+        position: absolute;
+        left: -7px;
+        top: 22%;
+        bottom: 22%;
+        width: 2px;
+        background: var(--ink-soft);
+        opacity: 0.22;
+      }
+
+      /* The current view is marked by a white glow on its label, not a fill. */
+      #view-switch a[aria-current="page"] {
+        color: #fff;
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+        cursor: default;
+      }
+
       #inspect-close {
         font: inherit;
         font-size: 15px;
@@ -533,6 +573,11 @@
         <h1>Agent Office</h1>
         <p><span class="layer">Layer 6</span> &middot; click an agent to inspect it</p>
       </div>
+
+      <nav class="hud" id="view-switch" aria-label="Switch view">
+        <a href="/">Dashboard</a>
+        <a href="/office/" aria-current="page">3D Office</a>
+      </nav>
 
       <div class="hud" id="inspector" hidden>
         <div class="inspector-head">

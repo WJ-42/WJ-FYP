@@ -518,6 +518,28 @@
   }
   .nav-item:hover { color: var(--text); background: var(--overlay-a); }
   .nav-item.active { background: var(--accent); color: var(--accent-ink); }
+  .view-switch {
+    display: inline-flex; align-self: flex-start; padding: 7px; gap: 4px;
+    border-radius: 999px; background: var(--sidebar-bg); border: 1px solid var(--line);
+  }
+  .view-switch a {
+    padding: 5px 18px; font-weight: 600; font-size: 14px;
+    color: var(--text); opacity: .55; text-decoration: none;
+    transition: opacity .15s ease, text-shadow .15s ease;
+  }
+  .view-switch a + a { position: relative; margin-left: 14px; }
+  .view-switch a + a::before {
+    content: ""; position: absolute; left: -9px; top: 22%; bottom: 22%;
+    width: 2px; background: var(--muted);
+  }
+  .view-switch a:hover { opacity: .85; }
+  /* The current view is marked by a faint glow on its label, not a fill. The glow
+     takes the theme's accent, and the label its text colour, so it stays readable
+     on the light themes too. */
+  .view-switch a[aria-current="page"] {
+    color: var(--text); opacity: 1; cursor: default;
+    text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
   .nav-divider { width: 28px; height: 1px; background: var(--line); margin: 2px auto 0; flex: none; }
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fae6c; }
   .live-dot.down { background: #c1552f; }
@@ -877,6 +899,10 @@
   </aside>
 
   <main class="main">
+    <nav class="view-switch" aria-label="Switch view">
+      <a href="/" aria-current="page">Dashboard</a>
+      <a href="/office/">3D Office</a>
+    </nav>
     <div class="view-head">
       <div>
         <h1 class="view-title" id="view-title">
