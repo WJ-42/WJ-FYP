@@ -20,7 +20,7 @@ import { SCENARIOS } from './scenarios.js';
 import { createPlayer, SPEEDS } from './player.js';
 import { createInspector } from './inspect.js';
 import { createEventLog } from './eventlog.js';
-import { createPanelLayout } from './panels.js';
+import { createPanelLayout, createControlsPanel } from './panels.js';
 
 const params = new URLSearchParams(location.search);
 const still = params.get('still') === '1';
@@ -221,6 +221,7 @@ createPanelLayout({
     gripX: document.getElementById('grip-scenarios-x'),
     gripY: document.getElementById('grip-scenarios-y'),
     gripCorner: document.getElementById('grip-scenarios-c'),
+    toggle: document.getElementById('scenarios-toggle'),
     storeKey: 'office-sim.panel.scenarios',
   },
   eventlog: {
@@ -228,8 +229,19 @@ createPanelLayout({
     gripX: document.getElementById('grip-eventlog-x'),
     gripY: document.getElementById('grip-eventlog-y'),
     gripCorner: document.getElementById('grip-eventlog-c'),
+    toggle: document.getElementById('eventlog-toggle'),
     storeKey: 'office-sim.panel.eventlog',
   },
+});
+
+createControlsPanel({
+  wrap: document.getElementById('wrap-controls'),
+  toggle: document.getElementById('controls-toggle'),
+  gripX: document.getElementById('grip-controls-x'),
+  gripY: document.getElementById('grip-controls-y'),
+  gripCorner: document.getElementById('grip-controls-c'),
+  storeKey: 'office-sim.panel.controls',
+  rail: document.getElementById('rail-left'),
 });
 
 // --- Observation (Layer 6) -------------------------------------------------

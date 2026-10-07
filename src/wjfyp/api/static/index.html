@@ -5,7 +5,7 @@
 <title>WJ-FYP Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Fira+Code:wght@400;700&family=Cascadia+Code:wght@400;700&family=Victor+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;700;800&family=Fira+Code:wght@400;700&family=Cascadia+Code:wght@400;700&family=Victor+Mono:wght@400;700&display=swap" rel="stylesheet" />
 <script>
   // Applied before the stylesheet paints anything, straight from
   // localStorage, so a returning viewer's theme/font/accessibility
@@ -487,10 +487,6 @@
     height: 100vh;
     padding: var(--space-4);
   }
-  @media (max-width: 1080px) {
-    .app { grid-template-columns: 88px 1fr; }
-    .rail { display: none; }
-  }
 
   /* ---------- Sidebar ---------- */
   .sidebar {
@@ -840,10 +836,10 @@
   /* Right rail */
   .rail { display: flex; flex-direction: column; gap: var(--space-3); overflow: auto; }
   .rail-block { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; }
-  .rail-block h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .rail-block h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); font-weight: 800; }
   .rail-live-row { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
   .rail-live-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-  .rail-empty { font-size: 13px; color: var(--muted); }
+  .rail-empty { margin: 0; font-size: 13px; color: var(--muted); }
   .rail-item {
     display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; cursor: pointer;
     border-top: 1px solid var(--line);
@@ -856,8 +852,56 @@
   .rail-item .rail-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .roster-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
   .roster-row:first-child { border-top: none; padding-top: 0; }
-  .roster-row .name { font-weight: 600; flex: 1; min-width: 0; }
-  .roster-row .count { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+  .roster-row:last-child { padding-bottom: 0; }
+  .roster-row .name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .roster-row .count { color: var(--muted); font-family: var(--font-mono); font-size: 11px; flex: none; }
+
+  /* ---------- Narrow / tiled windows ----------
+     Below 1080px the right-hand rail has no column left, so it drops under the
+     main panel as a strip. (It used to be `display: none` here, but the plain
+     .rail rule further down overrode that and left it squeezed into the 88px
+     sidebar column.) It stays visible because pending decisions live in it. */
+  @media (max-width: 1080px) {
+    .app {
+      grid-template-columns: 88px minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+    .sidebar { grid-row: 1 / span 2; }
+    /* Live on the left, Roster in the middle, Pending decisions on the right.
+       Each block is only as tall as its own content (align-items: start), so a
+       short one is not padded out to match a tall neighbour. */
+    .rail {
+      grid-column: 2;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr);
+      grid-template-rows: auto 1fr;
+      align-items: start;
+      max-height: 30vh;
+    }
+    .rail > .rail-block:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .rail > .rail-block:nth-child(3) { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+    .rail > .rail-block:nth-child(2) { grid-column: 3; grid-row: 1; }
+    /* Names keep their full width and the count wraps underneath if the two
+       cannot share a line, rather than the name being cut to "Prod...". */
+    .roster-row { flex-wrap: wrap; }
+    .roster-row .name { flex: 0 0 auto; overflow: visible; text-overflow: clip; }
+    .roster-row .count { margin-left: auto; }
+  }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 64px minmax(0, 1fr); padding: var(--space-2); gap: var(--space-2); }
+    .sidebar { padding: var(--space-2) 0; }
+    .brand { width: 36px; height: 36px; font-size: 14px; }
+    .nav-item { width: 44px; height: 44px; }
+    .main { padding: var(--space-3); }
+    .view-title { font-size: 26px; }
+    /* Three cards would be squeezed to ~150px each; let them scroll sideways instead. */
+    .kpi-row { display: flex; overflow-x: auto; flex: none; }
+    .kpi-card { flex: 0 0 210px; }
+    .rail { max-height: 24vh; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+    .rail > .rail-block:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .rail > .rail-block:nth-child(3) { grid-column: 1; grid-row: 2; }
+    .rail > .rail-block:nth-child(2) { grid-column: 1; grid-row: 3; }
+  }
 
   .view-scroll::-webkit-scrollbar, #kanban-scroll::-webkit-scrollbar, .column-body::-webkit-scrollbar { height: 10px; width: 8px; }
   .view-scroll::-webkit-scrollbar-track, #kanban-scroll::-webkit-scrollbar-track, .column-body::-webkit-scrollbar-track { background: transparent; }

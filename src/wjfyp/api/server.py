@@ -85,6 +85,19 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5, read_only: bool 
 
     app = FastAPI(lifespan=lifespan)
 
+    @app.middleware("http")
+    async def revalidate_static(request, call_next):
+        # The pages are plain static files under constant edit. With no
+        # Cache-Control at all, browsers cache a script heuristically and can
+        # pair a new page with an old module, so a button that exists in the
+        # HTML has no handler behind it. "no-cache" still lets the browser keep
+        # a copy, but makes it ask first (StaticFiles answers 304 when nothing
+        # changed), so edits always arrive.
+        response = await call_next(request)
+        if not request.url.path.startswith(("/api", "/ws")):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
     def _refuse_if_read_only() -> None:
         if read_only:
             raise HTTPException(status_code=403, detail=READ_ONLY_DETAIL)

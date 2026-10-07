@@ -128,8 +128,11 @@
         border-radius: 2px;
       }
 
-      .grip:hover::after {
-        background: #6fe0d2;
+      /* The grips are still there and still draggable (the cursor changes over
+         them), but nothing is drawn: the little bars and dots read as stray
+         marks on the edges of the boxes, folded ones especially. */
+      .grip::after {
+        display: none;
       }
 
       .grip-x {
@@ -228,16 +231,110 @@
         color: var(--ink);
       }
 
-      #controls {
-        bottom: 18px;
+      /* Bottom-left twin of the two right-hand panels. */
+      #wrap-controls {
         left: 18px;
+        right: auto;
+        bottom: 18px;
+        width: min(560px, calc(50vw - 27px));
+      }
+
+      /* No hand-set height yet: cap it so it cannot climb over the left rail
+         when the window is short. Once sized, panels.js clamps it instead. */
+      #wrap-controls.auto-size {
+        max-height: max(120px, calc(100vh - 230px));
+      }
+
+      #controls {
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px 16px;
+        flex-direction: column;
         font-size: 13px;
         color: var(--ink-soft);
         letter-spacing: 0.02em;
-        max-width: min(560px, calc(100vw - 36px));
+        overflow: hidden;
+      }
+
+      /* Every panel except the title card folds down to its header. The header
+         is the one child that stays, so a folded panel is still there to be
+         opened again. */
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex: none;
+      }
+
+      #controls h2 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      /* Prefixed with the panel id so the scenario panel's own button styling
+         (which is keyed on #scenarios button) does not turn this into a list row. */
+      #scenarios .panel-toggle,
+      #eventlog .panel-toggle,
+      #controls .panel-toggle {
+        font: inherit;
+        font-size: 15px;
+        line-height: 1;
+        color: var(--ink-soft);
+        background: none;
+        border: 0;
+        border-radius: 5px;
+        padding: 2px 8px;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      #scenarios .panel-toggle:hover,
+      #eventlog .panel-toggle:hover,
+      #controls .panel-toggle:hover {
+        color: var(--ink);
+        background: var(--line);
+      }
+
+      .panel-wrap.collapsed .hud > :not(.panel-head),
+      .panel-wrap.collapsed .grip-y,
+      .panel-wrap.collapsed .grip-corner {
+        /* !important because the panels' own children set display by id, which
+           would otherwise beat this and leave a "folded" panel fully showing. */
+        display: none !important;
+      }
+
+      #controls-body {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 8px 16px;
+        margin-top: 10px;
+        /* The key caps stand a hair taller than their line, which otherwise
+           shows up as a scrollbar for two pixels of overflow. */
+        padding-bottom: 3px;
+        min-height: 0;
+        overflow: hidden auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--ink-soft) transparent;
+      }
+
+      /* Mirrored grips: width on the right edge, height on the top edge. */
+      #wrap-controls .grip-x {
+        left: auto;
+        right: -5px;
+      }
+
+      #wrap-controls .grip-y {
+        top: -9px;
+      }
+
+      #wrap-controls .grip-corner {
+        top: -5px;
+        left: auto;
+        right: -5px;
+        cursor: nesw-resize;
       }
 
       #controls span {
@@ -307,7 +404,8 @@
       #view-switch a {
         flex: 1;
         text-align: center;
-        padding: 7px 12px;
+        padding: 7px 8px;
+        white-space: nowrap;
         font-size: 13px;
         font-weight: 600;
         color: var(--ink);
@@ -595,7 +693,10 @@
          the panels clip their own overflow and would cut them off. -->
     <div class="panel-wrap" id="wrap-scenarios">
 <div class="hud" id="scenarios">
-        <h2>Scenarios</h2>
+        <div class="panel-head">
+          <h2>Scenarios</h2>
+          <button class="panel-toggle" id="scenarios-toggle" type="button" aria-expanded="true" title="Hide scenarios">–</button>
+        </div>
         <!-- Buttons are generated from the library in scenarios.js, so the panel
              cannot fall out of step with what can actually be played. -->
         <div id="scenario-list"></div>
@@ -635,7 +736,10 @@
 
     <div class="panel-wrap" id="wrap-eventlog">
 <div class="hud" id="eventlog">
-        <h2>Event log</h2>
+        <div class="panel-head">
+          <h2>Event log</h2>
+          <button class="panel-toggle" id="eventlog-toggle" type="button" aria-expanded="true" title="Hide event log">–</button>
+        </div>
         <div id="log-rows"></div>
       </div>
       <div class="grip grip-x" id="grip-eventlog-x"
@@ -646,22 +750,39 @@
            title="Drag to resize · double-click to reset"></div>
     </div>
 
-    <div class="hud" id="controls">
-      <span><kbd>drag</kbd>pan</span>
-      <span><kbd>scroll</kbd>zoom</span>
-      <span><kbd>right-drag</kbd>rotate</span>
-      <span><kbd>R</kbd>reset view</span>
-      <span id="hint-anchors"><kbd>G</kbd>station anchors</span>
-      <span id="hint-labels"><kbd>L</kbd>name tags</span>
-      <span id="hint-nav"><kbd>N</kbd>nav grid</span>
-      <span id="hint-paths"><kbd>P</kbd>routes</span>
-      <span id="hint-badges"><kbd>B</kbd>activity</span>
-      <span><kbd>1</kbd>–<kbd>6</kbd>scenarios</span>
-      <span><kbd>space</kbd>play / pause</span>
-      <span><kbd>enter</kbd>restart</span>
-      <span><kbd>-</kbd><kbd>=</kbd>speed</span>
-      <span><kbd>click</kbd>inspect an agent</span>
-      <span><kbd>esc</kbd>deselect</span>
+    <!-- The key hints sit in a wrapper like the other two panels, mirrored to
+         the bottom left, so they get the same grips plus a fold-down toggle. -->
+    <div class="panel-wrap" id="wrap-controls">
+      <div class="hud" id="controls">
+        <div class="panel-head">
+          <h2>Controls</h2>
+          <button class="panel-toggle" id="controls-toggle" type="button" aria-controls="controls-body"
+                  aria-expanded="true" title="Hide controls">–</button>
+        </div>
+        <div id="controls-body">
+          <span><kbd>drag</kbd>pan</span>
+          <span><kbd>scroll</kbd>zoom</span>
+          <span><kbd>right-drag</kbd>rotate</span>
+          <span><kbd>R</kbd>reset view</span>
+          <span id="hint-anchors"><kbd>G</kbd>station anchors</span>
+          <span id="hint-labels"><kbd>L</kbd>name tags</span>
+          <span id="hint-nav"><kbd>N</kbd>nav grid</span>
+          <span id="hint-paths"><kbd>P</kbd>routes</span>
+          <span id="hint-badges"><kbd>B</kbd>activity</span>
+          <span><kbd>1</kbd>–<kbd>6</kbd>scenarios</span>
+          <span><kbd>space</kbd>play / pause</span>
+          <span><kbd>enter</kbd>restart</span>
+          <span><kbd>-</kbd><kbd>=</kbd>speed</span>
+          <span><kbd>click</kbd>inspect an agent</span>
+          <span><kbd>esc</kbd>deselect</span>
+        </div>
+      </div>
+      <div class="grip grip-x" id="grip-controls-x"
+           title="Drag to set the width · double-click to reset"></div>
+      <div class="grip grip-y" id="grip-controls-y"
+           title="Drag to set the height · double-click to reset"></div>
+      <div class="grip grip-corner" id="grip-controls-c"
+           title="Drag to resize · double-click to reset"></div>
     </div>
 
     <script type="module" src="./js/main.js"></script>

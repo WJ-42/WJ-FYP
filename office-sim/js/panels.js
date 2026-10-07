@@ -41,6 +41,25 @@ function writeStore(key, value) {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(Math.max(lo, hi), v));
 
+// A fold toggle for one panel. `after` runs once the panel has changed size, for
+// layouts where the neighbouring panel has to take up the slack.
+function wireToggle(button, panel, after = () => {}) {
+  if (!button) return;
+  const label = button.closest('.hud')?.querySelector('h2')?.textContent?.toLowerCase() ?? 'panel';
+  const sync = () => {
+    const folded = panel.isCollapsed();
+    button.textContent = folded ? '+' : '–';
+    button.setAttribute('aria-expanded', String(!folded));
+    button.title = `${folded ? 'Show' : 'Hide'} ${label}`;
+  };
+  button.addEventListener('click', () => {
+    panel.toggleCollapsed();
+    sync();
+    after();
+  });
+  sync();
+}
+
 /**
  * Makes one wrapper resizable.
  *
@@ -54,6 +73,7 @@ function createResizablePanel({
   gripY,
   gripCorner,
   anchor, // 'top' | 'bottom'
+  side = 'right', // which side edge is pinned: the width grip sits on the other one
   minWidth = 260,
   minHeight = 110,
   limits,
@@ -63,22 +83,31 @@ function createResizablePanel({
   const stored = readStore(storeKey);
   let width = Number(stored.width) || null;
   let height = Number(stored.height) || null;
+  // A collapsed panel shows only its header. Its remembered height is kept, so
+  // expanding it again puts it back the size it was.
+  let collapsed = Boolean(stored.collapsed);
 
   function apply() {
     const { maxWidth, maxHeight } = limits();
     wrap.style.width = width ? `${clamp(width, minWidth, maxWidth)}px` : '';
-    wrap.style.height = height ? `${clamp(height, minHeight, maxHeight)}px` : '';
+    wrap.style.height =
+      height && !collapsed ? `${clamp(height, minHeight, maxHeight)}px` : '';
+    wrap.classList.toggle('collapsed', collapsed);
+    // CSS caps a panel that has no height of its own, so it cannot grow over
+    // its neighbours; once it is sized by hand the clamp above does that job.
+    wrap.classList.toggle('auto-size', !height && !collapsed);
     onChange();
   }
 
   function persist() {
-    writeStore(storeKey, { width, height });
+    writeStore(storeKey, { width, height, collapsed });
   }
 
   function widthFrom(clientX) {
-    // The wrapper is pinned to the right, so its width is the distance from the
+    // The wrapper is pinned to one side, so its width is the distance from the
     // pointer to that fixed edge.
-    return wrap.getBoundingClientRect().right - clientX;
+    const rect = wrap.getBoundingClientRect();
+    return side === 'right' ? rect.right - clientX : clientX - rect.left;
   }
 
   function heightFrom(clientY) {
@@ -158,7 +187,49 @@ function createResizablePanel({
     // The measured outer edge, which the other panel clamps itself against.
     rect: () => wrap.getBoundingClientRect(),
     hasHeight: () => height !== null,
+    toggleCollapsed() {
+      collapsed = !collapsed;
+      apply();
+      persist();
+      return collapsed;
+    },
+    isCollapsed: () => collapsed,
   };
+}
+
+/**
+ * The key-hints box, bottom left.
+ *
+ * Same grips as the right-hand panels, mirrored: width from the right edge,
+ * height from the top edge. It also folds down to just its header, for when the
+ * window is tiled small and the hints are covering the scene. It is limited to
+ * the room under the left rail, so it cannot grow up over the title panel.
+ */
+export function createControlsPanel({ wrap, toggle, gripX, gripY, gripCorner, storeKey, rail, margin = 18 }) {
+  const panel = createResizablePanel({
+    wrap,
+    gripX,
+    gripY,
+    gripCorner,
+    storeKey,
+    anchor: 'bottom',
+    side: 'left',
+    minWidth: 200,
+    minHeight: 70,
+    limits: () => ({
+      maxWidth: Math.max(200, window.innerWidth / 2 - 27),
+      maxHeight: Math.max(
+        70,
+        window.innerHeight - margin - (rail ? rail.getBoundingClientRect().bottom : margin) - GAP
+      ),
+    }),
+  });
+
+  wireToggle(toggle, panel);
+
+  window.addEventListener('resize', () => panel.apply());
+  panel.apply();
+  return panel;
 }
 
 /**
@@ -169,12 +240,14 @@ function createResizablePanel({
  * having to know a number the other one owns.
  */
 export function createPanelLayout({ scenarios, eventlog, margin = 18 }) {
+  const { toggle: scenariosToggle, ...scenariosCfg } = scenarios;
+  const { toggle: eventlogToggle, ...eventlogCfg } = eventlog;
   const maxWidth = () => Math.max(260, window.innerWidth / 2 - 27);
   let top;
   let bottom;
 
   top = createResizablePanel({
-    ...scenarios,
+    ...scenariosCfg,
     anchor: 'top',
     limits: () => ({
       maxWidth: maxWidth(),
@@ -188,7 +261,7 @@ export function createPanelLayout({ scenarios, eventlog, margin = 18 }) {
   });
 
   bottom = createResizablePanel({
-    ...eventlog,
+    ...eventlogCfg,
     anchor: 'bottom',
     limits: () => ({
       maxWidth: maxWidth(),
@@ -200,6 +273,12 @@ export function createPanelLayout({ scenarios, eventlog, margin = 18 }) {
   // panel. Set explicitly rather than with CSS, because the scenario panel's
   // height is its content's and only the browser knows it.
   function sizeLog() {
+    // A folded log is just its header; its own apply() has already cleared the
+    // height, so leave it alone.
+    if (bottom.isCollapsed()) {
+      eventlog.wrap.style.height = '';
+      return;
+    }
     if (bottom.hasHeight()) return;
     const available = window.innerHeight - margin - top.rect().bottom - GAP;
     eventlog.wrap.style.height = `${Math.max(110, available)}px`;
@@ -210,6 +289,9 @@ export function createPanelLayout({ scenarios, eventlog, margin = 18 }) {
     bottom.apply();
     sizeLog();
   }
+
+  wireToggle(scenariosToggle, top, apply);
+  wireToggle(eventlogToggle, bottom, apply);
 
   window.addEventListener('resize', apply);
   apply();
