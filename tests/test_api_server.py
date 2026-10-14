@@ -225,5 +225,36 @@ class DecisionApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class ReadOnlyModeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.event_log = EventLog(Path(self.tmp.name) / "events.db")
+        self.addCleanup(self.event_log.close)
+        self.event_log.save_ticket(
+            Ticket(id="TCK-1", title="t", description="d", status=TicketStatus.REVIEW, pending_trigger="approved")
+        )
+        self.client = TestClient(create_app(self.event_log, poll_interval=0.05, read_only=True))
+
+    def test_reads_still_work(self) -> None:
+        self.assertEqual(self.client.get("/api/tickets").status_code, 200)
+        self.assertEqual(self.client.get("/api/roles").status_code, 200)
+
+    def test_decision_is_refused_and_not_recorded(self) -> None:
+        response = self.client.post("/api/tickets/TCK-1/decision", json={"trigger": "approved"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("read-only", response.json()["detail"])
+        self.assertIsNone(self.event_log.get_ticket("TCK-1").human_decision)
+
+    def test_role_writes_are_refused(self) -> None:
+        body = {"id": "qa", "name": "QA", "tier": 3, "model": "m"}
+
+        self.assertEqual(self.client.post("/api/roles", json=body).status_code, 403)
+        self.assertEqual(self.client.put("/api/roles/qa", json=body).status_code, 403)
+        self.assertEqual(self.client.delete("/api/roles/qa").status_code, 403)
+        self.assertIsNone(self.event_log.get_custom_role("qa"))
+
+
 if __name__ == "__main__":
     unittest.main()
