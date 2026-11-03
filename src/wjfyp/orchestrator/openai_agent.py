@@ -94,6 +94,48 @@ MAX_OUTPUT_TOKENS = 4096
 # evaluation batch.
 MAX_RETRIES = 6
 
+# A forced tool choice is a GUARANTEE on some endpoints and a HINT on
+# others, and the difference only shows up under repetition.
+#
+# Anthropic and Groq both honour tool_choice absolutely: name a tool and
+# the response contains a call to it. Ollama passes the choice to the
+# chat template as a suggestion, so the model can finish its reasoning
+# and then simply decline. Measured 03/11/2026 against a self-hosted
+# server on fifty IDENTICAL forced calls: qwen3:4b refused 3 of 50
+# (6.0%, 95% Wilson CI 2.1-16.2%), and qwen3:8b 1 of 10, so this is the
+# endpoint and not the model size.
+#
+# What it is NOT, in both cases:
+#   - truncation. finish_reason was "stop", never "length".
+#   - a reasoning-length effect. The 4B refusals had 721-848 completion
+#     tokens against a 247-1649 range overall, and the one 8B refusal
+#     had 325, its SHORTEST response of the ten.
+# Fifty identical prompts with three refusals is also the experiment for
+# whether a refusal is a property of the prompt, and it is not: the same
+# input succeeded 47 times. So resampling genuinely resamples, rather
+# than retrying something that was always going to fail.
+#
+# A 6% refusal rate matters because an arm makes hundreds of forced
+# calls, so the question is not whether this happens during a run but
+# how early. A non-response is a MISSING MEASUREMENT, not a decision to
+# record: there is no trigger to transition on and no narrative to
+# score, so the only two options are resample or lose the run.
+#
+# 3 resamples (4 attempts) is where the pessimistic end of that CI stops
+# mattering. Expected hard failures across a 500-forced-call run, at the
+# point estimate and at the CI upper bound:
+#   2 attempts   1.80   13.15
+#   3 attempts   0.11    2.13
+#   4 attempts   0.006   0.35   <- first budget under 1 even pessimistically
+#   5 attempts   0.000   0.06
+# A fifth attempt buys little and each one costs a full generation.
+#
+# Every discarded attempt is logged (see _log_resample), because an
+# unlogged resample would hide a real difference between arms in how
+# reliably they follow a forced schema under a given prompt, and that
+# rate is a result in its own right.
+MAX_EMPTY_RESAMPLES = 3
+
 # Raising max_retries without also lowering the timeout was a mistake
 # that cost a real run. The SDK's default read timeout is 600 seconds,
 # so a request that hangs rather than failing blocks for ten minutes
@@ -370,34 +412,113 @@ class OpenAIAgent:
         ]
 
     def _invoke_single_turn(self, context: AgentContext, triggers: list[str]) -> AgentResponse:
-        response = self._create(
-            model=self._role_config.model,
-            max_tokens=MAX_OUTPUT_TOKENS,
-            messages=self._messages(context, triggers),
-            tools=[_to_openai_tool(_tool_schema(triggers))],
-            tool_choice={"type": "function", "function": {"name": _TOOL_NAME}},
+        """One forced declare_outcome call, resampled if the endpoint
+        returns nothing (see MAX_EMPTY_RESAMPLES on why that happens).
+
+        Tokens from the empty attempts are added to the turn's recorded
+        cost. They were really spent, and a resample that cost nothing
+        on paper would understate the price of running an arm on a
+        backend that needs resampling more often.
+        """
+        prompt_tokens = 0
+        completion_tokens = 0
+        reason = "no attempts were made"
+        schema = _tool_schema(triggers)
+
+        for attempt in range(1 + MAX_EMPTY_RESAMPLES):
+            response = self._create(
+                model=self._role_config.model,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                messages=self._messages(context, triggers),
+                tools=[_to_openai_tool(schema)],
+                tool_choice={"type": "function", "function": {"name": _TOOL_NAME}},
+            )
+            usage = response.usage
+            prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+
+            calls = [
+                c
+                for c in (response.choices[0].message.tool_calls or [])
+                if c.function.name == _TOOL_NAME
+            ]
+            if not calls:
+                reason = (
+                    f"returned no {_TOOL_NAME!r} call despite tool_choice forcing it "
+                    f"(finish_reason={response.choices[0].finish_reason!r})"
+                )
+            else:
+                args = _parse_arguments(calls[0])
+                if args is None:
+                    reason = (
+                        f"returned unparsable arguments: "
+                        f"{calls[0].function.arguments[:200]!r}"
+                    )
+                elif not _conforms(schema["input_schema"], args):
+                    # Five fields are required, and a hint-only endpoint
+                    # constrains generation to none of them. Without
+                    # this check a missing handoff field surfaces as a
+                    # KeyError from _build_message, several frames from
+                    # the cause, instead of as one more resample.
+                    reason = (
+                        f"returned a call missing required fields or with wrong types: "
+                        f"{sorted(args)}"
+                    )
+                elif args.get("trigger") not in triggers:
+                    # The schema enumerates the legal triggers, but a
+                    # hint-only endpoint does not constrain generation
+                    # to it either, so this has to be checked rather
+                    # than assumed. An out-of-enum trigger would be an
+                    # illegal FSM transition.
+                    reason = (
+                        f"declared trigger {args.get('trigger')!r}, which is not one of "
+                        f"{triggers} for status {context.ticket.status.value!r}"
+                    )
+                else:
+                    return AgentResponse(
+                        message=self._build_message(
+                            context, args, prompt_tokens, completion_tokens
+                        ),
+                        trigger=args["trigger"],
+                    )
+
+            self._log_resample(context, attempt, reason)
+
+        raise ValueError(
+            f"{self._role_config.model} failed to produce a usable {_TOOL_NAME!r} call in "
+            f"{1 + MAX_EMPTY_RESAMPLES} attempts at status "
+            f"{context.ticket.status.value!r}; last attempt {reason}"
         )
-        calls = response.choices[0].message.tool_calls or []
-        if not calls:
-            raise ValueError(
-                f"{self._role_config.model} returned no tool call despite tool_choice forcing "
-                f"{_TOOL_NAME!r} - the endpoint may not honour forced tool choice"
+
+    def _log_resample(self, context: AgentContext, attempt: int, reason: str) -> None:
+        """Records a discarded attempt in the event log.
+
+        Without this the resample is invisible and the run looks clean,
+        which would be a quiet lie about how the data was obtained. A
+        later analysis can count these per arm straight out of the log,
+        and the rate is itself a measure of how reliably a model follows
+        a forced schema under a given prompt.
+
+        Every discard is logged, including the last one before this
+        gives up, which is why the text says "discarded attempt N/M"
+        rather than "resampled": attempt M is not followed by another
+        sample, it is followed by the raise.
+        """
+        if self._event_log is None:
+            return
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                content=MessageContent(
+                    text=_truncate(
+                        f"discarded attempt {attempt + 1}/{1 + MAX_EMPTY_RESAMPLES} of forced "
+                        f"{_TOOL_NAME}: {self._role_config.model} {reason}"
+                    )
+                ),
             )
-        args = _parse_arguments(calls[0])
-        if args is None:
-            raise ValueError(
-                f"{self._role_config.model} returned unparsable arguments for {_TOOL_NAME!r}: "
-                f"{calls[0].function.arguments[:200]!r}"
-            )
-        usage = response.usage
-        return AgentResponse(
-            message=self._build_message(
-                context,
-                args,
-                getattr(usage, "prompt_tokens", 0) or 0,
-                getattr(usage, "completion_tokens", 0) or 0,
-            ),
-            trigger=args["trigger"],
         )
 
     def _invoke_in_progress(self, context: AgentContext, triggers: list[str]) -> AgentResponse:
