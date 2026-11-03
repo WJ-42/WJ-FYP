@@ -138,7 +138,17 @@ def run_compare(
         print(f"unknown task id: {task_id!r}", file=out)
         return 1
     judge = LLMRubricJudge() if use_judge else None
-    guard = SpendGuard(cap_usd=budget_cap) if budget_cap is not None else None
+    # A run served from the user's own hardware costs nothing, and the
+    # guard has to be told so: an unrecognised model id otherwise prices
+    # at the Opus rate, which both reports spend that did not happen and
+    # trips the cap partway through a long local batch. The caller knows
+    # the endpoint; the guard cannot infer it from a model name.
+    self_hosted = backend != "claude" and base_url != DEFAULT_BASE_URL
+    guard = (
+        SpendGuard(cap_usd=budget_cap, self_hosted=self_hosted)
+        if budget_cap is not None
+        else None
+    )
     extra: dict[str, Any] = {}
     if backend != "claude":
         # Only passed when it is actually needed, so an injected test
@@ -154,7 +164,13 @@ def run_compare(
         return 2
     finally:
         if guard is not None:
-            print(f"estimated spend this run: ${guard.spent_usd:.4f} (cap ${guard.cap_usd:.2f})", file=out)
+            if guard.self_hosted:
+                print("spend this run: $0.0000 (self-hosted endpoint)", file=out)
+            else:
+                print(
+                    f"estimated spend this run: ${guard.spent_usd:.4f} (cap ${guard.cap_usd:.2f})",
+                    file=out,
+                )
     print_comparison(comparison, out=out)
     return 0
 

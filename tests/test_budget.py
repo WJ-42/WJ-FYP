@@ -78,3 +78,45 @@ class SpendGuardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfHostedSpendTest(unittest.TestCase):
+    """A run on hardware the user owns costs nothing, and the guard has
+    to know that rather than infer it.
+
+    The unknown-model fallback prices anything unrecognised at the Opus
+    rate, which is the right direction for an unrecognised HOSTED model
+    and the wrong one here. A real local comparison on qwen3:8b reported
+    $0.3364 of spend that did not happen, and at the default $5 cap that
+    aborts a 22-comparison batch around number 15: the failsafe killing
+    a run to prevent a cost that does not exist.
+    """
+
+    def test_a_self_hosted_run_accrues_nothing(self):
+        guard = SpendGuard(cap_usd=5.0, self_hosted=True)
+        guard.record("qwen3:8b", _usage(input_tokens=500_000, output_tokens=200_000))
+        self.assertEqual(guard.spent_usd, 0.0)
+        guard.check()
+
+    def test_a_long_local_batch_never_trips_the_cap(self):
+        """The actual failure this prevents: 22 comparisons at the
+        volume one real run used."""
+        guard = SpendGuard(cap_usd=5.0, self_hosted=True)
+        for _ in range(22):
+            guard.record("qwen3:8b", _usage(input_tokens=60_000, output_tokens=60_000))
+            guard.check()
+        self.assertEqual(guard.spent_usd, 0.0)
+
+    def test_the_same_usage_hosted_still_costs_and_still_guards(self):
+        """The failsafe must be untouched for anything not self-hosted,
+        including a model it does not recognise."""
+        guard = SpendGuard(cap_usd=5.0)
+        guard.record("qwen3:8b", _usage(input_tokens=500_000, output_tokens=200_000))
+        self.assertGreater(guard.spent_usd, 0.0)
+        with self.assertRaises(BudgetExceededError):
+            guard.check()
+
+    def test_self_hosted_defaults_to_false(self):
+        """Free has to be asked for. A guard constructed the old way
+        keeps guarding exactly as before."""
+        self.assertFalse(SpendGuard(cap_usd=1.0).self_hosted)

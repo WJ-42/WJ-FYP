@@ -74,6 +74,24 @@ class SpendGuard:
 
     cap_usd: float
     spent_usd: float = 0.0
+    # True when the run is served from hardware the user owns, where the
+    # marginal cost of a token is genuinely zero.
+    #
+    # The unknown-model fallback below prices anything unrecognised at
+    # the Opus rate, on the principle that a failsafe should overestimate
+    # rather than assume free. That is right for an unrecognised HOSTED
+    # model and wrong for a self-hosted one, where free is a measured
+    # fact rather than an assumption. A real comparison on a local
+    # qwen3:8b reported $0.3364 of "spend" that did not happen, and at a
+    # $5 cap that aborts a 22-comparison batch around number 15 - the
+    # failsafe killing a run to prevent a cost that does not exist.
+    #
+    # Deliberately a constructor flag set by the caller that knows the
+    # endpoint, not a guess from the model id: pricing qwen3 as free by
+    # name would silently mis-price the same model served by a paid
+    # provider, which is the failure direction a money guard must never
+    # take.
+    self_hosted: bool = False
     _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
 
     def check(self) -> None:
@@ -96,6 +114,8 @@ class SpendGuard:
         still allowed to finish; the next check() catches it before the
         following call.
         """
+        if self.self_hosted:
+            return
         input_rate, output_rate = MODEL_PRICING_USD_PER_MTOK.get(
             model, _UNKNOWN_MODEL_PRICING_USD_PER_MTOK
         )
