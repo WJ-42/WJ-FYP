@@ -163,6 +163,30 @@ class RunCompareTest(unittest.TestCase):
 
         self.assertIsNone(captured_kwargs["judge"])
 
+    def test_the_judge_is_off_unless_asked_for(self) -> None:
+        """The rubric judge is the only part of a run that still calls a
+        paid API. The project constraint is that a run costs nothing
+        unless it is asked to, so the default has to be off: a
+        default-on paid call behind a --no-judge flag means FORGETTING
+        the flag spends money, which is the wrong way round.
+        """
+        out = io.StringIO()
+        captured_kwargs = {}
+
+        def runner(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _canned_comparison()
+
+        run_compare(
+            _sample_tasks(), "demo-task",
+            ConditionSpec(label="hierarchical", roles_path=Path("config/roles.yaml")),
+            ConditionSpec(label="flat", roles_path=Path("config/roles_flat.yaml")),
+            Path("/template"), Path("/work"),
+            out=out, runner=runner,
+        )
+
+        self.assertIsNone(captured_kwargs["judge"])
+
     def test_no_budget_cap_by_default_passes_no_guard_and_prints_nothing_extra(self) -> None:
         out = io.StringIO()
         captured_kwargs = {}

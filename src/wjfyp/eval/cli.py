@@ -115,7 +115,7 @@ def run_compare(
     condition_b: ConditionSpec,
     template_repo_path: Path,
     work_dir: Path,
-    use_judge: bool = True,
+    use_judge: bool = False,
     budget_cap: float | None = None,
     backend: str = "claude",
     base_url: str = DEFAULT_BASE_URL,
@@ -176,8 +176,31 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser.add_argument("--label-a", default="hierarchical")
     compare_parser.add_argument("--roles-b", type=Path, default=Path("config/roles_flat.yaml"))
     compare_parser.add_argument("--label-b", default="flat")
+    # Opt IN, not opt out. The rubric judge is the only part of a run
+    # that still calls a paid API, and this project's constraint is that
+    # a run costs nothing unless it is asked to. A default-on paid call
+    # behind a --no-judge flag means forgetting the flag spends money,
+    # which is the wrong way round for a failsafe.
+    #
+    # It is also currently a saturated instrument: all six runs of
+    # 15/10/2026 scored 5/5 on every rubric axis, so it discriminated
+    # between nothing. The deterministic checkpoint and hidden-test
+    # scoring needs no model at all and is unaffected by this.
     compare_parser.add_argument(
-        "--no-judge", action="store_true", help="skip the rubric judge (2 fewer API calls)"
+        "--judge",
+        action="store_true",
+        help=(
+            "score the diffs with the LLM rubric judge as well as the deterministic "
+            "checkpoints. Off by default: it is the one remaining paid API call "
+            "(Anthropic, about 2 calls per comparison), and it stays on Claude even "
+            "when --backend is open so the measuring instrument does not change when "
+            "the thing being measured does"
+        ),
+    )
+    compare_parser.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="deprecated and now the default; accepted so existing commands keep working",
     )
     compare_parser.add_argument(
         "--base-url",
@@ -243,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             ConditionSpec(label=args.label_b, roles_path=args.roles_b),
             args.repo,
             args.work_dir,
-            use_judge=not args.no_judge,
+            use_judge=args.judge and not args.no_judge,
             budget_cap=args.budget_cap,
             backend=args.backend,
             base_url=args.base_url,
