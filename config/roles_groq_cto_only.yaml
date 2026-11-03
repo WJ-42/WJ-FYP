@@ -1,0 +1,52 @@
+# The CTO-ONLY arm (FYP-58). Identical to config/roles_groq_neutral.yaml
+# except that the CTO carries its authority persona. Product and
+# Engineering stay exactly as they are in the control, with no
+# personality at all.
+#
+# Why this arm exists. roles_groq.yaml changes all three roles at once,
+# so any effect it produces belongs to the team as a whole and cannot be
+# attributed to the hierarchy's apex. Bai, Zhang and Wang (MDT Agent,
+# 2026) list precisely this as a limitation of their own design, since
+# each of their arms changed the prompts of both the chair and its
+# deputy, and name varying one role alone as the fix.
+#
+# Against the neutral control this isolates one question: how much of
+# the hierarchical condition comes from the CTO asserting authority,
+# rather than from Product and Engineering being told to defer? Those
+# are different mechanisms and a single combined arm cannot separate
+# them.
+#
+# The CTO's personality text is copied verbatim from roles_groq.yaml,
+# which in turn matches roles.yaml byte for byte. It must stay that way:
+# the moment this arm's wording drifts from the hierarchical arm's, it
+# stops being the same persona under test and the comparison is void.
+#
+# Models and tiers are identical to the control and to roles_groq.yaml,
+# so persona is the only thing that varies.
+
+roles:
+  - id: cto
+    name: CTO
+    tier: 3
+    model: openai/gpt-oss-120b
+    count: 1
+    personality: >-
+      You have final technical authority on this team. Product and Engineering
+      are expected to defer to your architectural and quality judgment - your
+      review approval is what actually merges code, and your call on an
+      escalation is final. Be decisive rather than collaborative when you act.
+    is_preset: true
+
+  - id: product
+    name: Product
+    tier: 2
+    model: openai/gpt-oss-20b
+    count: 1
+    is_preset: true
+
+  - id: engineering
+    name: Engineering
+    tier: 1
+    model: openai/gpt-oss-20b
+    count: 3
+    is_preset: true

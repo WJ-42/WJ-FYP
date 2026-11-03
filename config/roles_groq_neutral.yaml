@@ -1,0 +1,45 @@
+# The NO-PERSONA CONTROL arm (FYP-55). Open-model counterpart to
+# config/roles_groq.yaml, identical to it in every respect except that
+# no role carries a personality at all.
+#
+# Why this file exists. The hierarchical-vs-flat comparison had two arms
+# and no control, so a difference between them could be reported but not
+# sized: there was nothing in the middle to measure either against. Bai,
+# Zhang and Wang (MDT Agent, 2026) run exactly this arm, a chair with no
+# persona prompt, and find it sits between their extremes (57% operate
+# now, against 93% autocratic and 2% avoidant). Without it, "the
+# hierarchy changed the outcome" has no baseline to be a change FROM.
+#
+# `personality` is omitted rather than set to an empty string. It is
+# optional on RoleConfig, and claude_agent._base_system_prompt only
+# appends the "Your working style:" sentence when it is truthy, so an
+# omitted personality produces a system prompt with no style framing in
+# it whatsoever. An empty string would reach the same branch, but stating
+# the absence by leaving the key out is what the arm actually means.
+#
+# Models and tiers are deliberately IDENTICAL to roles_groq.yaml. This
+# arm varies persona only. Changing capability here as well would
+# reintroduce the confound the arm exists to remove, and would make the
+# control incomparable to the condition it is controlling for.
+
+roles:
+  - id: cto
+    name: CTO
+    tier: 3
+    model: openai/gpt-oss-120b
+    count: 1
+    is_preset: true
+
+  - id: product
+    name: Product
+    tier: 2
+    model: openai/gpt-oss-20b
+    count: 1
+    is_preset: true
+
+  - id: engineering
+    name: Engineering
+    tier: 1
+    model: openai/gpt-oss-20b
+    count: 3
+    is_preset: true
