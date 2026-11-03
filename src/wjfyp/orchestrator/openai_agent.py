@@ -736,6 +736,7 @@ class OpenAIAgent:
                     )
                 notes.append(f"The tools you have are: {', '.join(sorted(valid_tool_names))}.")
                 messages.append({"role": "user", "content": " ".join(notes)})
+                self._log_rejected_calls(context, unknown, malformed, turn_id)
             elif not calls:
                 messages.append(
                     {
@@ -852,6 +853,47 @@ class OpenAIAgent:
             if args is not None and _conforms(_tool_schema(triggers)["input_schema"], args):
                 return args, prompt_tokens, completion_tokens
         return None, prompt_tokens, completion_tokens
+
+    def _log_rejected_calls(
+        self, context: AgentContext, unknown: list[str], malformed: list[str], turn_id: UUID
+    ) -> None:
+        """Records tool calls this loop refused to execute.
+
+        Without it, a turn that spent its whole iteration budget
+        emitting calls that never passed the schema check is
+        indistinguishable afterwards from one that simply thought for a
+        long time and did little. Those are very different findings: the
+        first is an integration problem with a fix, the second is a
+        claim about the model's capability. Writing the diagnosis down
+        at the moment it is known is the only way to tell them apart
+        later, because the rejected calls are deliberately kept OUT of
+        the message history and so leave no other trace.
+
+        Observed on qwen3:4b, 03/11/2026: one In Progress turn made a
+        single successful read_file, spent 8,513 completion tokens, and
+        ended on the forced declaration having committed nothing.
+        """
+        if self._event_log is None:
+            return
+        parts = []
+        if unknown:
+            parts.append(f"no such tool: {', '.join(unknown)}")
+        if malformed:
+            parts.append(f"arguments did not match schema: {', '.join(malformed)}")
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                parent_id=turn_id,
+                content=MessageContent(
+                    text=_truncate(
+                        f"rejected tool call from {self._role_config.model}: {'; '.join(parts)}"
+                    )
+                ),
+            )
+        )
 
     def _log_tool(
         self,
