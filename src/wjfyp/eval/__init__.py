@@ -4,10 +4,14 @@ from wjfyp.eval.mast import MAST_CATEGORIES, MAST_NAMES, MastFailureMode, MastJu
 from wjfyp.eval.runner import EvalRunResult, run_eval_task
 from wjfyp.eval.scoring import CheckpointResult, TaskScore, calculate_score, score_task
 from wjfyp.eval.task import Checkpoint, EvalTask, GradingContext
+from wjfyp.eval.usage import UsageReport, UsageTotals, summarise_usage
 
 __all__ = [
     "AgreementReport",
     "measure_agreement",
+    "UsageReport",
+    "UsageTotals",
+    "summarise_usage",
     "Checkpoint",
     "EvalTask",
     "GradingContext",
