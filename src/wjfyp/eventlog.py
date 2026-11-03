@@ -204,6 +204,26 @@ class EventLog:
             ).fetchall()
         return [Message.model_validate_json(row[0]) for row in reversed(rows)]
 
+    def get_costed_messages(self) -> list[Message]:
+        """Every message that carries a token cost, oldest first, with no
+        limit (FYP-61).
+
+        Deliberately not get_all_messages(some_big_number): a usage total
+        computed from a truncated feed would silently understate a run's
+        cost, and understating cost is the exact failure this work is
+        meant to fix. The SQL filters on the JSON rather than paging
+        everything through Python, so only agent turns are loaded - tool
+        call and tool result rows carry no cost and are the bulk of a
+        busy log.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT data FROM messages "
+                "WHERE json_extract(data, '$.token_cost') IS NOT NULL "
+                "ORDER BY rowid ASC"
+            ).fetchall()
+        return [Message.model_validate_json(row[0]) for row in rows]
+
     def get_messages_since(self, after_rowid: int, limit: int = 200) -> list[tuple[int, Message]]:
         """For the dashboard's polling loop: every message inserted after
         `after_rowid`, oldest first. Uses SQLite's implicit rowid (insert

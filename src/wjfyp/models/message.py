@@ -32,6 +32,19 @@ class ArtifactRef(BaseModel):
 class TokenCost(BaseModel):
     prompt: int
     completion: int
+    # Which model actually billed these tokens (FYP-61). Without it the
+    # counts cannot be priced, because this project's whole point is a
+    # team whose roles run on DIFFERENT models - a single total mixes
+    # Opus-rate and Haiku-rate tokens into a figure that means nothing.
+    # It also keeps a run attributable if a model is later withdrawn or
+    # the tier ladder is changed, which config/roles_groq.yaml calls out
+    # as a live risk.
+    #
+    # Optional because event logs written before this field existed are
+    # still readable: Message is persisted as JSON, so an absent `model`
+    # parses back as None rather than failing. Treat None as "recorded
+    # before models were tracked", not as free.
+    model: str | None = None
 
 
 class HandoffNote(BaseModel):

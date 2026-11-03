@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from wjfyp.config import DEFAULT_ROLES_PATH, list_all_roles, load_roles
+from wjfyp.eval.usage import summarise_usage
 from wjfyp.eventlog import EventLog
 from wjfyp.models.agent import RoleConfig
 from wjfyp.orchestrator.fsm import next_state
@@ -119,6 +120,14 @@ def create_app(event_log: EventLog, poll_interval: float = 0.5, read_only: bool 
     @app.get("/api/messages")
     async def all_messages(limit: int = 200) -> list[dict]:
         return [m.model_dump(mode="json") for m in event_log.get_all_messages(limit)]
+
+    @app.get("/api/usage")
+    async def usage() -> dict:
+        """Tokens and an upper-bound cost, broken down by role and model
+        (FYP-61). Read-only aggregation over the whole event log, so it
+        reflects every run that log has seen, not the last N messages.
+        """
+        return summarise_usage(event_log.get_costed_messages()).model_dump(mode="json")
 
     def _preset_ids() -> set[str]:
         return {role.id for role in load_roles(DEFAULT_ROLES_PATH)}

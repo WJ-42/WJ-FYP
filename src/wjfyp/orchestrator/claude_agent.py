@@ -731,6 +731,10 @@ class ClaudeAgent:
                     notes_for_next=args["handoff_notes_for_next"],
                 ),
             ),
-            token_cost=TokenCost(prompt=prompt_tokens, completion=completion_tokens),
+            token_cost=TokenCost(
+                prompt=prompt_tokens,
+                completion=completion_tokens,
+                model=self._role_config.model,
+            ),
             **fields,
         )

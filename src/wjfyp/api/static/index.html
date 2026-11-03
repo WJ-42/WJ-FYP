@@ -881,6 +881,9 @@
     .rail > .rail-block:nth-child(1) { grid-column: 1; grid-row: 1; }
     .rail > .rail-block:nth-child(3) { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
     .rail > .rail-block:nth-child(2) { grid-column: 3; grid-row: 1; }
+    /* Token use goes in the cell under Live, which the three-block layout
+       left empty - so adding it reflows nothing that was already here. */
+    .rail > .rail-block:nth-child(4) { grid-column: 1; grid-row: 2; }
     /* Names keep their full width and the count wraps underneath if the two
        cannot share a line, rather than the name being cut to "Prod...". */
     .roster-row { flex-wrap: wrap; }
@@ -905,6 +908,7 @@
     .rail > .rail-block:nth-child(1) { grid-column: 1; grid-row: 1; }
     .rail > .rail-block:nth-child(3) { grid-column: 1; grid-row: 2; }
     .rail > .rail-block:nth-child(2) { grid-column: 1; grid-row: 3; }
+    .rail > .rail-block:nth-child(4) { grid-column: 1; grid-row: 4; }
   }
 
   .view-scroll::-webkit-scrollbar, #kanban-scroll::-webkit-scrollbar, .column-body::-webkit-scrollbar { height: 10px; width: 8px; }
@@ -1047,6 +1051,10 @@
     <div class="rail-block">
       <h2>Roster</h2>
       <div id="rail-roster"></div>
+    </div>
+    <div class="rail-block">
+      <h2>Token use</h2>
+      <div id="rail-usage"><p class="rail-empty">No agent turns recorded yet.</p></div>
     </div>
   </aside>
 </div>
@@ -1603,6 +1611,60 @@ function renderRailPending(pending) {
   });
 }
 
+// Deliberately a breakdown, not a single headline number. The whole
+// point of FYP-61 is that one total mixes tokens billed at different
+// rates across tiers, so a lone figure answers no question anyone asks.
+// Cost is labelled "at most" because the shared pricing table (see
+// orchestrator/budget.py) prices every input token at full rate with no
+// discount for cache reads, and so always overestimates.
+function fmtTokens(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return Math.round(n / 1000) + "k";
+  return String(n);
+}
+
+async function loadUsage() {
+  const el = document.getElementById("rail-usage");
+  let usage;
+  try {
+    usage = await fetch("/api/usage").then(r => r.json());
+  } catch {
+    return;  // a failed poll leaves the last good figures up rather than blanking them
+  }
+  if (!usage.total || usage.total.messages === 0) {
+    el.innerHTML = `<p class="rail-empty">No agent turns recorded yet.</p>`;
+    return;
+  }
+  el.innerHTML = "";
+  const roles = Object.entries(usage.by_role).sort((a, b) =>
+    (b[1].prompt + b[1].completion) - (a[1].prompt + a[1].completion));
+  roles.forEach(([role, t]) => {
+    const row = document.createElement("div");
+    row.className = "roster-row";
+    const cost = t.cost_usd == null ? "" : ` · $${t.cost_usd.toFixed(3)}`;
+    row.innerHTML =
+      `<span class="tier-dot ${tierClassFor(role)}"></span>` +
+      `<span class="name">${role}</span>` +
+      `<span class="count">${fmtTokens(t.prompt + t.completion)}${cost}</span>`;
+    el.appendChild(row);
+  });
+  const total = document.createElement("div");
+  total.className = "roster-row";
+  const totalCost = usage.total.cost_usd == null
+    ? "cost unknown"
+    : `at most $${usage.total.cost_usd.toFixed(3)}`;
+  total.innerHTML =
+    `<span class="name">Total</span>` +
+    `<span class="count">${fmtTokens(usage.total.prompt + usage.total.completion)} · ${totalCost}</span>`;
+  el.appendChild(total);
+  if (usage.unpriced_models.length) {
+    const note = document.createElement("p");
+    note.className = "rail-empty";
+    note.textContent = `Not priced: ${usage.unpriced_models.join(", ")}`;
+    el.appendChild(note);
+  }
+}
+
 function renderRoster() {
   const el = document.getElementById("rail-roster");
   el.innerHTML = "";
@@ -1815,6 +1877,14 @@ function setLiveState(connected) {
     : "Lost the socket - retrying every second.";
 }
 
+// Only agent turns carry a token cost, but several can land together, so
+// the refresh is coalesced rather than fired per message.
+let usageRefreshTimer = null;
+function scheduleUsageRefresh() {
+  if (usageRefreshTimer) return;
+  usageRefreshTimer = setTimeout(() => { usageRefreshTimer = null; loadUsage(); }, 500);
+}
+
 function connectWebSocket() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => setLiveState(true);
@@ -1836,6 +1906,7 @@ function connectWebSocket() {
         }
       }
       renderMessagesKpi();
+      if (data.token_cost) scheduleUsageRefresh();
     } else if (type === "ticket_update") {
       ticketsById[data.id] = data;
       renderBoard();
@@ -1850,6 +1921,7 @@ function connectWebSocket() {
 // has tier colors, instead of an untinted flash before a re-render.
 loadRoleTiers().then(() => {
   loadFeed();
+  loadUsage();
   loadTickets().then(() => {
     const match = location.hash.match(/^#ticket:(.+)$/);
     if (match && ticketsById[match[1]]) {
