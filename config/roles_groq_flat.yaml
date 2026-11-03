@@ -1,0 +1,70 @@
+# Open-model counterpart to config/roles_flat.yaml: the FLAT team, run
+# on open-weight models through Groq. Added for FYP-60.
+#
+# Stands in the same relation to config/roles_groq.yaml as
+# roles_flat.yaml does to roles.yaml, and the personality text is
+# identical to roles_flat.yaml's, byte for byte. The FSM, the pipeline
+# stages and which `id` acts at which ticket state are unchanged, same
+# as in the Claude pair: the comparison isolates organisational
+# structure, not the thing being tested.
+#
+# Why every role is gpt-oss-20b. roles_flat.yaml puts all three roles on
+# Sonnet 5, the MIDDLE of the three Claude models, to keep the flat
+# team's aggregate capability roughly comparable to the hierarchical
+# team's mix rather than trivially handicapping it. There is no middle
+# model available here: the free tier offers only gpt-oss-120b and
+# gpt-oss-20b with tool calling (plus preview-only qwen3.8-27b, which
+# roles_groq.yaml explains why it avoids). That is a real limitation of
+# this backend and worth stating in the report rather than papering
+# over.
+#
+# gpt-oss-20b is still the better of the two available choices, and not
+# only on cost. The hierarchical team is one 120b instance and four 20b
+# instances, so an all-20b flat team differs from it in exactly one
+# instance's model, whereas an all-120b flat team would differ in four
+# and would be far stronger in aggregate than the condition it is being
+# compared against. All-20b is the closer match in aggregate capability,
+# which is what roles_flat.yaml's middle-model reasoning was actually
+# aiming at.
+#
+# One consequence to keep visible when reading results: the difference
+# between this file and roles_groq.yaml is the CTO's model AND the
+# persona framing, two variables rather than one. The Claude pair has
+# the same property, so this is not a new flaw, but FYP-58 (an arm that
+# varies only the CTO's prompt) exists to separate them.
+
+roles:
+  - id: cto
+    name: CTO
+    tier: 1
+    model: openai/gpt-oss-20b
+    count: 1
+    personality: >-
+      You are one of several equal peers on this team - your position in the
+      pipeline is a division of labor, not a rank. Voice disagreement and
+      negotiate with the rest of the team rather than expecting automatic
+      deference; a decision you make is a collaborative judgment call, not an
+      order.
+    is_preset: true
+
+  - id: product
+    name: Product
+    tier: 1
+    model: openai/gpt-oss-20b
+    count: 1
+    personality: >-
+      You are one of several equal peers on this team. If you think an
+      upstream decision should be revisited, say so - you're not obligated to
+      accept scope you disagree with just because someone else set it.
+    is_preset: true
+
+  - id: engineering
+    name: Engineering
+    tier: 1
+    model: openai/gpt-oss-20b
+    count: 3
+    personality: >-
+      You are one of several equal peers on this team. Review feedback is
+      one peer's opinion, not a directive - push back if you think your
+      original approach was right, rather than deferring automatically.
+    is_preset: true

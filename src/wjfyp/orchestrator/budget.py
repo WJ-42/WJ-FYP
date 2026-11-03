@@ -24,6 +24,18 @@ MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus-5": (5.0, 25.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    # Open-weight models served by Groq (FYP-60, config/roles_groq.yaml),
+    # at Groq's own published list prices. These runs are free on the
+    # free tier, but they are priced here rather than left out on
+    # purpose: an unlisted model falls through to the Opus rate below,
+    # which would trip the guard almost immediately and make an
+    # open-model run look like a runaway. Pricing them also means the
+    # guard keeps working unchanged if the Developer plan is ever
+    # enabled, instead of the failsafe quietly disappearing at the
+    # moment real money starts being spent.
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    "openai/gpt-oss-20b": (0.075, 0.30),
+    "qwen/qwen3.8-27b": (0.80, 4.00),
 }
 
 # Priced as the most expensive known tier (Opus) if a model id isn't in

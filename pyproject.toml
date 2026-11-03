@@ -14,7 +14,10 @@ dependencies = [
 # API/websocket layer), not the running server itself.
 api = ["fastapi", "uvicorn[standard]", "websockets", "httpx"]
 sandbox = ["docker"]
-agent = ["anthropic"]
+# `openai` is the client for any OpenAI-compatible endpoint, not for
+# OpenAI's own API - it backs orchestrator/openai_agent.py, which runs
+# the team on open-weight models via Groq (FYP-60).
+agent = ["anthropic", "openai"]
 
 [build-system]
 requires = ["hatchling"]
