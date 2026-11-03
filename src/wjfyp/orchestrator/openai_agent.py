@@ -136,6 +136,13 @@ MAX_RETRIES = 6
 # rate is a result in its own right.
 MAX_EMPTY_RESAMPLES = 3
 
+# How many requests may be refused BACK TO BACK before the turn gives up
+# on the endpoint. Four, because the recoverable case this allows for is
+# a model erring, being corrected, and erring differently, which a
+# success in between resets - so four in a row with no generation at all
+# is the server, not the model.
+MAX_CONSECUTIVE_REJECTIONS = 4
+
 
 class ContextWindowExceeded(RuntimeError):
     """The server silently dropped the front of the prompt.
@@ -603,6 +610,7 @@ class OpenAIAgent:
         # so a prompt that stops growing with it has been truncated.
         last_prompt_tokens = 0
         last_sent_chars = 0
+        consecutive_rejections = 0
         # What the turn actually did, for the forced final turn below,
         # which cannot be shown the real history. One line per tool call.
         tool_log: list[str] = []
@@ -635,17 +643,33 @@ class OpenAIAgent:
                 # the turn through the normal iteration budget below.
                 reason = str(exc).split(" - ", 1)[-1][:300]
                 tool_log.append("rejected tool call")
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Your last tool call was rejected: {reason}\n"
-                            f"The tools you have are: {', '.join(sorted(valid_tool_names))}. "
-                            "Check the argument names and types, then try again."
-                        ),
-                    }
-                )
+                self._log_rejected_request(context, turn_id, reason)
+                # A 400 costs no time and generates nothing, so a server
+                # refusing every request burns all twelve iterations in
+                # milliseconds and ends on the forced declaration having
+                # done nothing. That is indistinguishable, in the
+                # result, from a model that would not act - which is a
+                # conclusion about the MODEL, drawn from a fault in the
+                # SERVER. The self-hosted box was observed on 03/11/2026
+                # rejecting bursts of about ten requests in a few
+                # milliseconds while it swapped models.
+                #
+                # Consecutive is the right thing to count: a model
+                # erring, being told, and erring differently is the
+                # recoverable case this path exists for, and a success
+                # in between resets it. Nothing but refusals means the
+                # endpoint is not answering, and spending the rest of
+                # the budget on it only buys a misleading result.
+                consecutive_rejections += 1
+                if consecutive_rejections >= MAX_CONSECUTIVE_REJECTIONS:
+                    raise RuntimeError(
+                        f"{self._role_config.model} had {consecutive_rejections} consecutive "
+                        f"requests rejected by {self._client.base_url}; last reason: {reason}. "
+                        "The endpoint is refusing rather than the model erring - check the "
+                        "server is up and not swapping models mid-run."
+                    ) from exc
                 continue
+            consecutive_rejections = 0
             usage = response.usage
             prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
             total_prompt += prompt_tokens
@@ -864,6 +888,32 @@ class OpenAIAgent:
             if args is not None and _conforms(_tool_schema(triggers)["input_schema"], args):
                 return args, prompt_tokens, completion_tokens
         return None, prompt_tokens, completion_tokens
+
+    def _log_rejected_request(self, context: AgentContext, turn_id: UUID, reason: str) -> None:
+        """Records a request the ENDPOINT refused, as opposed to a tool
+        call this loop refused (_log_rejected_calls) or an iteration
+        that produced no call (_log_no_tool_call).
+
+        This was the last unlogged path, and the most dangerous, because
+        a 400 costs no time and produces no tokens. A burst of them
+        empties the iteration budget in milliseconds and leaves a turn
+        that did nothing, which reads afterwards as a model that would
+        not act.
+        """
+        if self._event_log is None:
+            return
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                parent_id=turn_id,
+                content=MessageContent(
+                    text=_truncate(f"request refused by the endpoint: {reason}")
+                ),
+            )
+        )
 
     def _log_no_tool_call(
         self, context: AgentContext, turn_id: UUID, said: str | None

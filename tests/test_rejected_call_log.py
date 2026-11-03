@@ -133,11 +133,30 @@ class RejectedCallLogTest(unittest.TestCase):
             ]
             self.assertIn("said: ''", written[0])
 
+    def test_an_endpoint_refusal_is_recorded_separately(self):
+        """Three different things can stop an iteration doing work, and
+        they have three different fixes. This one is the endpoint
+        refusing, which is neither the loop rejecting a call nor the
+        model declining to make one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(Path(tmp) / "events.db")
+            agent = OpenAIAgent(ROLE, "engineering-1", client=object(), event_log=log)
+            agent._log_rejected_request(context(), uuid4(), "model is loading")
+
+            written = [
+                m.content.text
+                for m in log.get_all_messages()
+                if m.type == MessageType.SYSTEM and "refused by the endpoint" in m.content.text
+            ]
+            self.assertEqual(len(written), 1)
+            self.assertIn("model is loading", written[0])
+
     def test_no_event_log_is_not_an_error(self):
         """Unit tests and ad-hoc probes construct agents without one."""
         agent = OpenAIAgent(ROLE, "engineering-1", client=object())
         agent._log_rejected_calls(context(), ["run_file"], [], uuid4())
         agent._log_no_tool_call(context(), uuid4(), "anything")
+        agent._log_rejected_request(context(), uuid4(), "anything")
 
 
 if __name__ == "__main__":
