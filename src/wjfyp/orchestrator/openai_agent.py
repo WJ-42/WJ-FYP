@@ -136,6 +136,34 @@ MAX_RETRIES = 6
 # rate is a result in its own right.
 MAX_EMPTY_RESAMPLES = 3
 
+
+class ContextWindowExceeded(RuntimeError):
+    """The server silently dropped the front of the prompt.
+
+    Measured against a self-hosted Ollama server on 03/11/2026. /api/ps
+    reported a 4096-token window for qwen3:8b (the model itself
+    supports 40,960; 4096 is just Ollama's default). Sending more than
+    that does NOT fail:
+
+        sent ~6,000 tokens  -> 200 OK, usage.prompt_tokens = 2,050
+        sent ~12,000 tokens -> 200 OK, usage.prompt_tokens = 2,050
+
+    With a marker planted at each end of the prompt, the model could
+    quote the one at the BACK and not the one at the FRONT. The window
+    slides and the oldest tokens go.
+
+    This is worse than the 413 Request too large that Groq returned for
+    the same overflow. A 413 is a refusal: loud, survivable, and
+    impossible to mistake for a result. This is a 200 with a plausible
+    answer computed from a prompt that no longer contains the system
+    prompt or the role persona - which, for a project whose independent
+    variable IS the persona, means silently measuring nothing while
+    producing data that looks fine.
+
+    So it is raised rather than worked around. A run that loses its
+    persona should stop, not continue and be written up.
+    """
+
 # Raising max_retries without also lowering the timeout was a mistake
 # that cost a real run. The SDK's default read timeout is 600 seconds,
 # so a request that hangs rather than failing blocks for ten minutes
@@ -521,6 +549,40 @@ class OpenAIAgent:
             )
         )
 
+    def _check_context_held(
+        self, prompt_tokens: int, last_prompt_tokens: int, appended_chars: int
+    ) -> None:
+        """Detects a slid context window from the usage numbers alone.
+
+        Checking the reported prompt size against a ceiling would mean
+        knowing the ceiling, and nothing in the OpenAI-compatible API
+        reports it - /api/ps is Ollama-specific and vLLM has its own.
+        So this uses the one invariant that holds on every backend: this
+        loop only ever APPENDS to `messages`, so the prompt can only
+        grow. If a few thousand characters go in and the reported prompt
+        barely moves, the front went out as the back went in.
+
+        The threshold is deliberately slack. English runs about 4 to 5
+        characters per token, so dividing by 8 is roughly half the
+        growth the smallest plausible tokenizer would produce - far
+        below any honest tokenizer difference, and far above the ~0
+        growth seen at a real ceiling. `appended_chars` has a floor too,
+        so a one-word append cannot trip it.
+        """
+        if last_prompt_tokens <= 0 or appended_chars < 400:
+            return
+        growth = prompt_tokens - last_prompt_tokens
+        if growth >= appended_chars / 8:
+            return
+        raise ContextWindowExceeded(
+            f"{self._role_config.model} appears to have dropped the front of the prompt: "
+            f"{appended_chars:,} characters were appended to the transcript but the reported "
+            f"prompt only moved from {last_prompt_tokens:,} to {prompt_tokens:,} tokens. "
+            "The server's context window is too small for this turn and it is truncating "
+            "silently rather than refusing. Raise it (for Ollama, set OLLAMA_CONTEXT_LENGTH "
+            "on the server and restart it) or run a model whose window fits the transcript."
+        )
+
     def _invoke_in_progress(self, context: AgentContext, triggers: list[str]) -> AgentResponse:
         sandbox = context.sandbox
         assert sandbox is not None  # narrows the type; invoke() already checked
@@ -537,11 +599,16 @@ class OpenAIAgent:
         # works identically whichever backend produced the run.
         turn_id = uuid4()
         has_committed = False
+        # For _check_context_held. The transcript only ever grows here,
+        # so a prompt that stops growing with it has been truncated.
+        last_prompt_tokens = 0
+        last_sent_chars = 0
         # What the turn actually did, for the forced final turn below,
         # which cannot be shown the real history. One line per tool call.
         tool_log: list[str] = []
 
         for _ in range(MAX_SANDBOX_ITERATIONS):
+            sent_chars = len(json.dumps(messages, default=str))
             try:
                 response = self._create(
                     model=self._role_config.model,
@@ -580,8 +647,14 @@ class OpenAIAgent:
                 )
                 continue
             usage = response.usage
-            total_prompt += getattr(usage, "prompt_tokens", 0) or 0
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            total_prompt += prompt_tokens
             total_completion += getattr(usage, "completion_tokens", 0) or 0
+            self._check_context_held(
+                prompt_tokens, last_prompt_tokens, sent_chars - last_sent_chars
+            )
+            last_prompt_tokens = prompt_tokens
+            last_sent_chars = sent_chars
 
             message = response.choices[0].message
             all_calls = list(message.tool_calls or [])
