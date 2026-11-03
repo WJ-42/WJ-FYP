@@ -98,11 +98,46 @@ class RejectedCallLogTest(unittest.TestCase):
             written = [m for m in log.get_all_messages() if m.type == MessageType.SYSTEM]
             self.assertEqual(written[0].parent_id, turn_id)
 
+    def test_an_iteration_with_no_tool_call_is_recorded_with_what_it_said(self):
+        """The case that mattered. qwen3:4b produced no call on 11 of 12
+        iterations, reasoning at length and never acting, and that left
+        no trace at all until this existed - the only way to spot it was
+        to subtract executed and rejected calls from the iteration
+        count, which is inference from absence."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(Path(tmp) / "events.db")
+            agent = OpenAIAgent(ROLE, "engineering-1", client=object(), event_log=log)
+            agent._log_no_tool_call(context(), uuid4(), "I should now write the validation logic.")
+
+            written = [
+                m.content.text
+                for m in log.get_all_messages()
+                if m.type == MessageType.SYSTEM and "no tool call" in m.content.text
+            ]
+            self.assertEqual(len(written), 1)
+            self.assertIn("qwen3:4b", written[0])
+            self.assertIn("I should now write the validation logic.", written[0])
+
+    def test_a_silent_iteration_records_the_silence(self):
+        """An empty content with no call is still worth a line: it is a
+        different signature from a model narrating its intentions."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(Path(tmp) / "events.db")
+            agent = OpenAIAgent(ROLE, "engineering-1", client=object(), event_log=log)
+            agent._log_no_tool_call(context(), uuid4(), None)
+
+            written = [
+                m.content.text
+                for m in log.get_all_messages()
+                if m.type == MessageType.SYSTEM and "no tool call" in m.content.text
+            ]
+            self.assertIn("said: ''", written[0])
+
     def test_no_event_log_is_not_an_error(self):
         """Unit tests and ad-hoc probes construct agents without one."""
-        OpenAIAgent(ROLE, "engineering-1", client=object())._log_rejected_calls(
-            context(), ["run_file"], [], uuid4()
-        )
+        agent = OpenAIAgent(ROLE, "engineering-1", client=object())
+        agent._log_rejected_calls(context(), ["run_file"], [], uuid4())
+        agent._log_no_tool_call(context(), uuid4(), "anything")
 
 
 if __name__ == "__main__":

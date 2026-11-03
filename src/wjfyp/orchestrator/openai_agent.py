@@ -747,6 +747,17 @@ class OpenAIAgent:
                         ),
                     }
                 )
+                # The third outcome an iteration can have, and the one
+                # that turned out to matter. Executed calls are logged
+                # by _log_tool and rejected ones by _log_rejected_calls,
+                # so without this an iteration that produced NO call at
+                # all was the only kind leaving no trace - and it was
+                # the kind qwen3:4b produced on 11 of 12 iterations,
+                # reasoning at length and never acting. Diagnosing that
+                # by subtracting the other two from the iteration count
+                # is inference from absence, which is precisely what
+                # these log entries exist to avoid.
+                self._log_no_tool_call(context, turn_id, message.content)
         else:
             # Iteration budget exhausted without a usable declare_outcome.
             # Force one final turn so this always terminates with a real
@@ -853,6 +864,37 @@ class OpenAIAgent:
             if args is not None and _conforms(_tool_schema(triggers)["input_schema"], args):
                 return args, prompt_tokens, completion_tokens
         return None, prompt_tokens, completion_tokens
+
+    def _log_no_tool_call(
+        self, context: AgentContext, turn_id: UUID, said: str | None
+    ) -> None:
+        """Records an iteration that produced no tool call at all.
+
+        A model that talks instead of acting burns the whole iteration
+        budget and reaches the forced declaration having done nothing,
+        which looks like task failure. It is a distinct behaviour from
+        emitting a call the schema rejects, and distinguishing them is
+        the difference between a claim about capability and a bug
+        report. The first few words of what it said instead are kept,
+        because that is usually what identifies the pattern.
+        """
+        if self._event_log is None:
+            return
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                parent_id=turn_id,
+                content=MessageContent(
+                    text=_truncate(
+                        f"no tool call from {self._role_config.model} this iteration; "
+                        f"said: {(said or '')[:200]!r}"
+                    )
+                ),
+            )
+        )
 
     def _log_rejected_calls(
         self, context: AgentContext, unknown: list[str], malformed: list[str], turn_id: UUID
