@@ -13,15 +13,18 @@ than left unused.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
-from typing import Callable, TextIO
+from typing import Any, Callable, TextIO
 
 from wjfyp.eval.comparison import ConditionSpec, StructureComparison, run_structure_comparison
 from wjfyp.eval.rubric import LLMRubricJudge
 from wjfyp.eval.task import EvalTask
 from wjfyp.eval.tasks import TASKS
 from wjfyp.orchestrator.budget import BudgetExceededError, SpendGuard
+from wjfyp.orchestrator.openai_agent import DEFAULT_BASE_URL
+from wjfyp.orchestrator.openai_agent import build_agent_pool as build_open_model_pool
 
 
 def list_tasks(tasks: dict[str, EvalTask], out: TextIO = sys.stdout) -> None:
@@ -75,6 +78,26 @@ def print_comparison(comparison: StructureComparison, out: TextIO = sys.stdout) 
         print(f"Verdict: {better.label} scored higher by {abs(comparison.score_delta):.2f}", file=out)
 
 
+def _open_model_pool_builder(guard: SpendGuard | None) -> Callable[..., dict]:
+    """Agent pool factory for the open-model backend (FYP-60).
+
+    run_structure_comparison only wires its own spend guard into the
+    DEFAULT builder, on the grounds that an injected one owns its
+    agents. So this closes over the guard itself rather than letting the
+    failsafe quietly vanish the moment a run switches backend - the
+    whole point of a money backstop is that it does not have gaps.
+    """
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise SystemExit(
+            "GROQ_API_KEY is not set, so the open-model backend cannot run. "
+            "Put it in a local .env and export it, or pass --backend claude."
+        )
+    return lambda roles_path, event_log: build_open_model_pool(
+        roles_path, event_log, spend_guard=guard, api_key=api_key, base_url=DEFAULT_BASE_URL
+    )
+
+
 def run_compare(
     tasks: dict[str, EvalTask],
     task_id: str,
@@ -84,6 +107,7 @@ def run_compare(
     work_dir: Path,
     use_judge: bool = True,
     budget_cap: float | None = None,
+    backend: str = "claude",
     out: TextIO = sys.stdout,
     runner: Callable[..., StructureComparison] = run_structure_comparison,
 ) -> int:
@@ -103,9 +127,15 @@ def run_compare(
         return 1
     judge = LLMRubricJudge() if use_judge else None
     guard = SpendGuard(cap_usd=budget_cap) if budget_cap is not None else None
+    extra: dict[str, Any] = {}
+    if backend != "claude":
+        # Only passed when it is actually needed, so an injected test
+        # runner keeps seeing the call shape it already expects.
+        extra["agent_pool_builder"] = _open_model_pool_builder(guard)
     try:
         comparison = runner(
-            task, condition_a, condition_b, template_repo_path, work_dir, judge=judge, spend_guard=guard
+            task, condition_a, condition_b, template_repo_path, work_dir,
+            judge=judge, spend_guard=guard, **extra,
         )
     except BudgetExceededError as exc:
         print(f"budget cap hit, aborting: {exc}", file=out)
@@ -138,6 +168,18 @@ def main(argv: list[str] | None = None) -> int:
         "--no-judge", action="store_true", help="skip the rubric judge (2 fewer API calls)"
     )
     compare_parser.add_argument(
+        "--backend",
+        choices=["claude", "groq"],
+        default="claude",
+        help=(
+            "which Agent implementation runs the team: claude (Anthropic API, "
+            "paid) or groq (open-weight models, free tier, needs GROQ_API_KEY). "
+            "The rubric judge is unaffected and stays on Claude, so that the "
+            "measuring instrument does not change when the thing being measured "
+            "does (default: claude)"
+        ),
+    )
+    compare_parser.add_argument(
         "--budget-cap",
         type=float,
         default=5.0,
@@ -166,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             args.work_dir,
             use_judge=not args.no_judge,
             budget_cap=args.budget_cap,
+            backend=args.backend,
         )
 
     return 0

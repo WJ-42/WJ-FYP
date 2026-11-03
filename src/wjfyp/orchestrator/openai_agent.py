@@ -72,6 +72,7 @@ from wjfyp.orchestrator.claude_agent import (
     _user_turn,
 )
 from wjfyp.orchestrator.fsm import agent_facing_triggers
+from wjfyp.orchestrator.verification import accept_under_protest, verify_declaration
 from wjfyp.sandbox.controller import SandboxController
 
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
@@ -472,11 +473,14 @@ class OpenAIAgent:
 
             if declare_call is not None:
                 declared = parsed[declare_call.id] or {}
-                rejection: str | None = None
-                if declared.get("trigger") == "code_submission" and not has_committed:
-                    rejection = (
-                        "You haven't committed yet. Call git_commit, then declare_outcome again."
-                    )
+                # Same shared invariant ClaudeAgent applies - see
+                # orchestrator/verification.py. One definition, so the
+                # two backends cannot drift on what counts as a valid
+                # submission.
+                verdict = verify_declaration(
+                    declared.get("trigger", ""), has_committed=has_committed
+                )
+                rejection: str | None = None if verdict else verdict.rejection
                 # Every tool call in an assistant message needs a reply
                 # before the next request, so a rejected declare is
                 # answered rather than dropped - otherwise the follow-up
@@ -560,13 +564,12 @@ class OpenAIAgent:
                     "would be indistinguishable from a real one in the results."
                 )
 
-        if final_args.get("trigger") == "code_submission" and not has_committed:
+        if not verify_declaration(final_args.get("trigger", ""), has_committed=has_committed):
             # Only reachable through the iteration-budget escape hatch
-            # above. Flagged in the narrative rather than silently
-            # accepted, because approval IS the merge and there would be
-            # nothing to merge.
+            # above, where rejecting would risk never terminating. See
+            # verification.accept_under_protest for that trade.
             final_args = dict(final_args)
-            final_args["narrative"] = f"[submitted without committing] {final_args['narrative']}"
+            final_args["narrative"] = accept_under_protest(final_args["narrative"])
 
         return AgentResponse(
             message=self._build_message(context, final_args, total_prompt, total_completion, message_id=turn_id),

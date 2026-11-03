@@ -14,6 +14,7 @@ from wjfyp.models.ticket import TicketStatus
 from wjfyp.orchestrator.agent import Agent, AgentContext, AgentResponse
 from wjfyp.orchestrator.budget import SpendGuard
 from wjfyp.orchestrator.fsm import agent_facing_triggers
+from wjfyp.orchestrator.verification import accept_under_protest, verify_declaration
 from wjfyp.sandbox.controller import SandboxController
 
 _TOOL_NAME = "declare_outcome"
@@ -597,17 +598,20 @@ class ClaudeAgent:
                 for block, result in zip(other_blocks, tool_results)
             )
 
-            declaring_uncommitted_submission = (
-                declare_block is not None
-                and declare_block.input.get("trigger") == "code_submission"
-                and not has_committed
+            # See orchestrator/verification.py for why a declared
+            # code_submission is checked against real sandbox state
+            # rather than trusted from the model's own narrative.
+            verdict = (
+                verify_declaration(declare_block.input.get("trigger", ""), has_committed=has_committed)
+                if declare_block is not None
+                else None
             )
-            if declaring_uncommitted_submission:
+            if verdict is not None and not verdict:
                 tool_results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": declare_block.id,
-                        "content": "You haven't committed yet. Call git_commit, then declare_outcome again.",
+                        "content": verdict.rejection,
                         "is_error": True,
                     }
                 )
@@ -659,15 +663,13 @@ class ClaudeAgent:
             total_completion += response.usage.output_tokens
             final_args = next(block for block in response.content if block.type == "tool_use").input
 
-        if final_args.get("trigger") == "code_submission" and not has_committed:
-            # Visible, not silent: a code_submission that never actually
-            # committed means the Review -> Done "approval IS the merge"
-            # mechanic would merge nothing, since git_commit is the only
-            # thing that pushes back to the host branch (see
-            # cs3ip-comm-protocol memory's git mechanics). Only reachable
-            # via the iteration-budget escape hatch above.
+        if not verify_declaration(final_args.get("trigger", ""), has_committed=has_committed):
+            # Only reachable via the iteration-budget escape hatch above,
+            # where rejecting is not an option because the turn must end
+            # with a real FSM transition. Flagged loudly instead - see
+            # verification.accept_under_protest.
             final_args = dict(final_args)
-            final_args["narrative"] = f"[submitted without committing] {final_args['narrative']}"
+            final_args["narrative"] = accept_under_protest(final_args["narrative"])
 
         return AgentResponse(
             message=self._build_message(context, final_args, total_prompt, total_completion, message_id=turn_id),
