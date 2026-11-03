@@ -1,3 +1,4 @@
+from wjfyp.eval.agreement import AgreementReport, measure_agreement
 from wjfyp.eval.baseline import BaselineComparison, compare_to_baseline, single_agent_pool
 from wjfyp.eval.mast import MAST_CATEGORIES, MAST_NAMES, MastFailureMode, MastJudge, tag_run
 from wjfyp.eval.runner import EvalRunResult, run_eval_task
@@ -5,6 +6,8 @@ from wjfyp.eval.scoring import CheckpointResult, TaskScore, calculate_score, sco
 from wjfyp.eval.task import Checkpoint, EvalTask, GradingContext
 
 __all__ = [
+    "AgreementReport",
+    "measure_agreement",
     "Checkpoint",
     "EvalTask",
     "GradingContext",
