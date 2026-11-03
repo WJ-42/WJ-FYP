@@ -374,6 +374,26 @@ def _has_missing_module(text: str) -> bool:
     return any(sig in text for sig in _MISSING_MODULE_SIGNATURES)
 
 
+def _is_nothing_to_commit(message: str) -> bool:
+    """Is this commit failure just an empty working tree?
+
+    Matched on git's own wording rather than the exit code, because
+    exit 1 covers many commit failures and only this one is the agent's
+    cue to go and do some work. Several phrasings are checked since the
+    exact line differs between an untouched tree and one where changes
+    exist but are unstaged.
+    """
+    lowered = message.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "nothing to commit",
+            "no changes added to commit",
+            "nothing added to commit",
+        )
+    )
+
+
 def _replace_in_file(
     sandbox: SandboxController, path: str, old_text: str, new_text: str
 ) -> tuple[str, bool]:
@@ -407,10 +427,29 @@ def _replace_in_file(
 
     occurrences = current.count(old_text)
     if occurrences == 0:
+        # "Already done" is listed FIRST because it was the commonest
+        # cause in practice and the one the agent handles worst. On the
+        # run of 03/11/2026 a review-cycle agent spent most of a turn
+        # alternating read_file and a replace of 'answer: "Saturday"'
+        # that could not match, because an earlier agent had already
+        # changed it to "Thursday". It read the correct file each time
+        # and tried again. An error that only talks about whitespace
+        # invites exactly that loop, since re-reading never reveals a
+        # whitespace problem that is not there.
+        hint = ""
+        if new_text and new_text in current:
+            hint = (
+                " NOTE: new_text is ALREADY present in the file, so this change appears to "
+                "have been made already. Check whether there is anything left to do before "
+                "trying again."
+            )
         return (
-            f"no match in {path}: old_text does not appear in the file exactly as given. "
-            "The match is literal, including indentation and trailing spaces. Read the "
-            "file again and copy the snippet from it rather than retyping it.",
+            f"no match in {path}: old_text does not appear in the file exactly as given."
+            f"{hint} Two things usually cause this. Either the change has already been "
+            "made, so read the file and check whether it already says what you want. Or "
+            "the snippet differs from the file in whitespace - the match is literal, "
+            "including indentation and trailing spaces, so copy it from the file rather "
+            "than retyping it.",
             True,
         )
     if occurrences > 1:
@@ -469,7 +508,26 @@ def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> 
         if name == "git_diff":
             return _truncate(sandbox.git_diff()), False
         if name == "git_commit":
-            sha = sandbox.git_commit(args["message"])
+            try:
+                sha = sandbox.git_commit(args["message"])
+            except Exception as exc:  # noqa: BLE001 - translated below, not swallowed
+                # Committing with nothing staged is a distinct, common
+                # and recoverable mistake, and git reports it in prose
+                # that reads like success ("Your branch is up to date").
+                # On the run of 03/11/2026 an agent opened its turn with
+                # git_commit before doing any work and got a raw exit-1
+                # dump, which says nothing about what to do next.
+                #
+                # Every other commit failure keeps its original message:
+                # this narrows one case, it does not soften the rest.
+                if _is_nothing_to_commit(str(exc)):
+                    return (
+                        "nothing to commit: the working tree has no changes yet, so there "
+                        "is nothing to save. Make your edits first with replace_in_file or "
+                        "write_file, then call git_commit.",
+                        True,
+                    )
+                raise
             return f"committed {sha}", False
         return f"unknown tool {name!r}", True
     except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring

@@ -90,7 +90,38 @@ class ReplaceInFileTest(unittest.TestCase):
         self.assertTrue(is_error)
         self.assertIn("no match", text)
         self.assertIn("indentation", text)
+        self.assertIn("already been made", text)
         self.assertEqual(sandbox.read_file("agent.yaml"), YAML)
+
+    def test_an_already_applied_change_is_named_as_the_likely_cause(self):
+        """The loop this prevents. A review-cycle agent on 03/11/2026
+        spent most of a turn alternating read_file and a replace of
+        'answer: "Saturday"' that could not match, because an earlier
+        agent had already changed it to "Thursday". It read the correct
+        file every time. An error that only mentions whitespace invites
+        exactly that, since re-reading never reveals a whitespace
+        problem that is not there.
+        """
+        sandbox = sandbox_with()
+        call(sandbox, path="agent.yaml", old_text='answer: "Saturday"', new_text='answer: "Thursday"')
+
+        text, is_error = call(
+            sandbox, path="agent.yaml", old_text='answer: "Saturday"', new_text='answer: "Thursday"'
+        )
+        self.assertTrue(is_error)
+        self.assertIn("ALREADY present", text)
+        self.assertIn("already been made", text)
+
+    def test_a_genuine_whitespace_miss_does_not_claim_it_is_done(self):
+        """The hint must not fire when the change really has not been
+        made, or it would send the agent away from work it still owes."""
+        sandbox = sandbox_with()
+        text, is_error = call(
+            sandbox, path="agent.yaml", old_text='answer:"Saturday"', new_text='answer: "Friday"'
+        )
+        self.assertTrue(is_error)
+        self.assertNotIn("ALREADY present", text)
+        self.assertIn("whitespace", text)
 
     def test_a_missing_file_is_an_error_not_a_crash(self):
         text, is_error = call(sandbox_with(), path="nope.yaml", old_text="a", new_text="b")
