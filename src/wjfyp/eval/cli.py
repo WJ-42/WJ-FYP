@@ -99,7 +99,8 @@ def _open_model_pool_builder(
             raise SystemExit(
                 "GROQ_API_KEY is not set, so the hosted open-model backend cannot run. "
                 "Put it in a local .env and export it, pass --base-url to point at a "
-                "self-hosted server instead, or pass --backend claude."
+                "self-hosted server instead (e.g. --base-url "
+                "http://<your-box>:11434/v1), or pass --backend claude."
             )
         api_key = "not-needed"
     return lambda roles_path, event_log: build_open_model_pool(
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         "--base-url",
         default=DEFAULT_BASE_URL,
         help=(
-            "OpenAI-compatible endpoint for --backend groq. Point it at a "
+            "OpenAI-compatible endpoint for --backend open. Point it at a "
             "self-hosted server to run with no rate limits and no account at "
             "all, e.g. http://10.126.129.12:11434/v1 for Ollama on another "
             f"machine (default: {DEFAULT_BASE_URL})"
@@ -202,12 +203,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare_parser.add_argument(
         "--backend",
-        choices=["claude", "groq"],
+        choices=["claude", "open", "groq"],
         default="claude",
         help=(
             "which Agent implementation runs the team: claude (Anthropic API, "
-            "paid) or groq (open-weight models, free tier, needs GROQ_API_KEY). "
-            "The rubric judge is unaffected and stays on Claude, so that the "
+            "paid) or open (any OpenAI-compatible endpoint - a self-hosted "
+            "Ollama/vLLM/llama.cpp server via --base-url, or a hosted provider, "
+            "which needs GROQ_API_KEY). 'groq' is the former name for 'open' and "
+            "still works, since the implementation was never Groq-specific. The "
+            "rubric judge is unaffected and stays on Claude, so that the "
             "measuring instrument does not change when the thing being measured "
             "does (default: claude)"
         ),
