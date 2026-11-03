@@ -182,10 +182,17 @@ def main(argv: list[str] | None = None) -> int:
     # behind a --no-judge flag means forgetting the flag spends money,
     # which is the wrong way round for a failsafe.
     #
-    # It is also currently a saturated instrument: all six runs of
-    # 15/10/2026 scored 5/5 on every rubric axis, so it discriminated
-    # between nothing. The deterministic checkpoint and hidden-test
-    # scoring needs no model at all and is unaffected by this.
+    # It saturated on the runs there is data for: all six Claude runs of
+    # 15/10/2026 scored 3/3 on the checkpoints and 5/5 on every rubric
+    # axis. That is a fact about CLAUDE on that task, though, not about
+    # the judge or the task alone, and it does not carry over to the
+    # open models - a weaker team may well produce the spread those runs
+    # lacked. So this flag exists for the cost, which is certain, rather
+    # than for the saturation, which is not established beyond the
+    # backend that produced it.
+    #
+    # The deterministic checkpoint and hidden-test scoring needs no
+    # model at all and is unaffected either way.
     compare_parser.add_argument(
         "--judge",
         action="store_true",
