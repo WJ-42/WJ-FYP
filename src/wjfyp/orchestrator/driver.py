@@ -50,12 +50,10 @@ def apply_pending_decisions(
     """Poll-and-apply pass over every ticket with a recorded human
     decision waiting to be picked up: calls resume() for each, same
     polling pattern the dashboard's own poll_loop() already uses for
-    new messages. Meant to be called periodically by whatever process
-    is actually driving the orchestrator - no persistent scheduling
-    loop of its own here, since there's no real LLM-backed Agent yet
-    for a standing process to run against (see cs3ip-fyp-overview
-    memory); this is the tested, ready-to-call building block for when
-    one exists, not a running service today. `workspace`: see
+    new messages. This is the building block; the standing process that
+    calls it on an interval is orchestrator/scheduler.py's
+    DecisionScheduler (FYP-59), which also reports tickets left waiting
+    on a human rather than deciding for them. `workspace`: see
     loop.step()'s docstring - required for an "approved" decision here
     to actually merge anything.
     """
