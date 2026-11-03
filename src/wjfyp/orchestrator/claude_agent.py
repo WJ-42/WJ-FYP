@@ -29,7 +29,34 @@ MAX_SANDBOX_ITERATIONS = 12
 # read_file or run_command output can't blow up context or cost. Applied
 # to both what's fed back to the model and what's written to the event
 # log.
-_MAX_TOOL_RESULT_CHARS = 20000
+#
+# Lowered from 20,000 on 03/11/2026 after measuring what actually fills
+# an In Progress request. The fixed floor - system prompt, tool schemas
+# and user turn, all resent every iteration - is only about 1,160
+# tokens, leaving roughly 6,840 under Groq's free-tier ceiling of 8,000
+# tokens per minute. At 20,000 chars a SINGLE read_file was 5,000
+# tokens, nearly three quarters of that budget in one call, so the
+# transcript crossed the ceiling within a few iterations and every
+# subsequent request was refused outright with HTTP 413 "request too
+# large". Not throttled, refused: no amount of retrying can shrink a
+# payload, so the loop could never finish. Measured directly, 8,000
+# tokens 429s and 12,000 413s.
+#
+# At 2,000 chars (~500 tokens) a full twelve-iteration loop fits inside
+# the ceiling with room to spare, which is the whole of
+# MAX_SANDBOX_ITERATIONS.
+#
+# Deliberately a single value shared by both backends rather than one
+# per provider. Anthropic would tolerate the larger cap, but a run where
+# Claude sees 20,000 characters of a file and an open model sees 2,000
+# is not the same run, and the comparison between them would be
+# measuring truncation as much as capability. Identical prompts means
+# identical truncation.
+#
+# Independently the right default anyway: MetaGPT's own failure analysis
+# attributes 43% of its code-inconsistency failures to agents ignoring
+# prescribed context, which argues for less context rather than more.
+_MAX_TOOL_RESULT_CHARS = 2000
 
 # Every iteration of the In Progress tool-use loop resends the same
 # system prompt, the same tool schemas, and a messages list that's only

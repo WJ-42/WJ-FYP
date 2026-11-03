@@ -78,7 +78,9 @@ def print_comparison(comparison: StructureComparison, out: TextIO = sys.stdout) 
         print(f"Verdict: {better.label} scored higher by {abs(comparison.score_delta):.2f}", file=out)
 
 
-def _open_model_pool_builder(guard: SpendGuard | None) -> Callable[..., dict]:
+def _open_model_pool_builder(
+    guard: SpendGuard | None, base_url: str, model: str | None
+) -> Callable[..., dict]:
     """Agent pool factory for the open-model backend (FYP-60).
 
     run_structure_comparison only wires its own spend guard into the
@@ -87,14 +89,21 @@ def _open_model_pool_builder(guard: SpendGuard | None) -> Callable[..., dict]:
     failsafe quietly vanish the moment a run switches backend - the
     whole point of a money backstop is that it does not have gaps.
     """
+    # A self-hosted server (Ollama, vLLM, llama.cpp) needs no key and
+    # usually rejects none, so a placeholder keeps the SDK happy rather
+    # than forcing a pointless secret for a box on your own LAN. A
+    # hosted provider still requires the real thing.
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        raise SystemExit(
-            "GROQ_API_KEY is not set, so the open-model backend cannot run. "
-            "Put it in a local .env and export it, or pass --backend claude."
-        )
+        if base_url == DEFAULT_BASE_URL:
+            raise SystemExit(
+                "GROQ_API_KEY is not set, so the hosted open-model backend cannot run. "
+                "Put it in a local .env and export it, pass --base-url to point at a "
+                "self-hosted server instead, or pass --backend claude."
+            )
+        api_key = "not-needed"
     return lambda roles_path, event_log: build_open_model_pool(
-        roles_path, event_log, spend_guard=guard, api_key=api_key, base_url=DEFAULT_BASE_URL
+        roles_path, event_log, spend_guard=guard, api_key=api_key, base_url=base_url, model=model
     )
 
 
@@ -108,6 +117,8 @@ def run_compare(
     use_judge: bool = True,
     budget_cap: float | None = None,
     backend: str = "claude",
+    base_url: str = DEFAULT_BASE_URL,
+    model: str | None = None,
     out: TextIO = sys.stdout,
     runner: Callable[..., StructureComparison] = run_structure_comparison,
 ) -> int:
@@ -131,7 +142,7 @@ def run_compare(
     if backend != "claude":
         # Only passed when it is actually needed, so an injected test
         # runner keeps seeing the call shape it already expects.
-        extra["agent_pool_builder"] = _open_model_pool_builder(guard)
+        extra["agent_pool_builder"] = _open_model_pool_builder(guard, base_url, model)
     try:
         comparison = runner(
             task, condition_a, condition_b, template_repo_path, work_dir,
@@ -166,6 +177,28 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser.add_argument("--label-b", default="flat")
     compare_parser.add_argument(
         "--no-judge", action="store_true", help="skip the rubric judge (2 fewer API calls)"
+    )
+    compare_parser.add_argument(
+        "--base-url",
+        default=DEFAULT_BASE_URL,
+        help=(
+            "OpenAI-compatible endpoint for --backend groq. Point it at a "
+            "self-hosted server to run with no rate limits and no account at "
+            "all, e.g. http://10.126.129.12:11434/v1 for Ollama on another "
+            f"machine (default: {DEFAULT_BASE_URL})"
+        ),
+    )
+    compare_parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "override the model on EVERY role, keeping each arm's tiers and "
+            "personas as written. This is what lets one set of arm configs run "
+            "on any backend instead of a duplicate set per provider. It "
+            "collapses the capability ladder on purpose, which is correct for "
+            "the persona arms since they hold models constant by design. Leave "
+            "unset for an arm whose point is differing capability per tier"
+        ),
     )
     compare_parser.add_argument(
         "--backend",
@@ -209,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
             use_judge=not args.no_judge,
             budget_cap=args.budget_cap,
             backend=args.backend,
+            base_url=args.base_url,
+            model=args.model,
         )
 
     return 0

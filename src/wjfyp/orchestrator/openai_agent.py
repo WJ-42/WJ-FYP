@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx
 from openai import BadRequestError, OpenAI
 
 from wjfyp.config import DEFAULT_ROLES_PATH, load_roles
@@ -92,6 +93,22 @@ MAX_OUTPUT_TOKENS = 4096
 # "the run was slow", which is the right trade for an unattended
 # evaluation batch.
 MAX_RETRIES = 6
+
+# Raising max_retries without also lowering the timeout was a mistake
+# that cost a real run. The SDK's default read timeout is 600 seconds,
+# so a request that hangs rather than failing blocks for ten minutes
+# before the first retry, and six retries makes that an hour of silence
+# on a single call. A pilot run on 03/11/2026 made three sandbox tool
+# calls in two seconds and then sat completely still for ten minutes,
+# which looked exactly like rate limiting and was not.
+#
+# 90 seconds is well past anything this workload legitimately needs: the
+# slowest real call measured was a 13,500-token In Progress turn at
+# around 70 seconds, and a single forced tool call returns in about one.
+# Past that the request is hung rather than slow, and failing fast to
+# retry beats waiting. Connect stays short because a connection that
+# cannot be established is never worth waiting on.
+REQUEST_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 
 
 class _UsageShim:
@@ -233,6 +250,7 @@ def build_agent_pool(
     spend_guard: SpendGuard | None = None,
     api_key: str | None = None,
     base_url: str = DEFAULT_BASE_URL,
+    model: str | None = None,
 ) -> dict[str, list[Agent]]:
     """The open-model counterpart to claude_agent.build_agent_pool, with
     the same signature plus the two provider arguments, so a caller can
@@ -241,9 +259,27 @@ def build_agent_pool(
     One client is shared by every agent in the pool. The SDK's client is
     thread-safe and pools connections, and sharing it means the retry
     budget and connection reuse are shared too.
+
+    `model`, if given, replaces the model on EVERY role, leaving tiers,
+    counts and personas exactly as the file wrote them. That is what
+    keeps one set of arm configs usable on any backend instead of a
+    duplicate set per provider: six arms times two backends would be
+    twelve near-identical files whose persona text has to stay
+    byte-identical in pairs, and the only reliable way to keep two
+    copies identical is to have one copy.
+
+    Overriding every role with the same model deliberately COLLAPSES the
+    capability ladder. For the persona arms that is correct and in fact
+    desirable, since they hold models constant by design and vary only
+    the prompt. For an arm whose whole point is differing capability per
+    tier, leave this unset and let the file say what it means.
     """
-    client = OpenAI(api_key=api_key, base_url=base_url, max_retries=MAX_RETRIES)
+    client = OpenAI(
+        api_key=api_key, base_url=base_url, max_retries=MAX_RETRIES, timeout=REQUEST_TIMEOUT
+    )
     roles = load_roles(roles_path)
+    if model is not None:
+        roles = [r.model_copy(update={"model": model}) for r in roles]
     return {
         role.id: [
             OpenAIAgent(
