@@ -23,6 +23,15 @@ GROQ_HIERARCHICAL = CONFIG / "roles_groq.yaml"
 GROQ_FLAT = CONFIG / "roles_groq_flat.yaml"
 GROQ_NEUTRAL = CONFIG / "roles_groq_neutral.yaml"
 GROQ_CTO_ONLY = CONFIG / "roles_groq_cto_only.yaml"
+GROQ_TRAITS = CONFIG / "roles_groq_traits.yaml"
+GROQ_FLAT_TRAITS = CONFIG / "roles_groq_flat_traits.yaml"
+
+# Each traits-only ablation and the rules arm it ablates.
+TRAITS_PAIRS = [(GROQ_TRAITS, GROQ_HIERARCHICAL), (GROQ_FLAT_TRAITS, GROQ_FLAT)]
+
+# Naming another role is what turns a disposition back into a rule about
+# the org chart, which is exactly what the traits-only arms must not do.
+ROLE_WORDS = ["cto", "product", "engineering", "engineer"]
 
 # The arms that hold capability fixed and vary persona alone. A
 # difference in models between any two of these would confound the
@@ -35,7 +44,7 @@ def by_id(path: Path) -> dict[str, object]:
 
 
 class EveryArmLoadsTest(unittest.TestCase):
-    def test_all_six_configs_parse(self):
+    def test_all_eight_configs_parse(self):
         for path in [
             CLAUDE_HIERARCHICAL,
             CLAUDE_FLAT,
@@ -43,6 +52,8 @@ class EveryArmLoadsTest(unittest.TestCase):
             GROQ_FLAT,
             GROQ_NEUTRAL,
             GROQ_CTO_ONLY,
+            GROQ_TRAITS,
+            GROQ_FLAT_TRAITS,
         ]:
             with self.subTest(config=path.name):
                 roles = load_roles(path)
@@ -53,7 +64,15 @@ class EveryArmLoadsTest(unittest.TestCase):
         not drift between arms or the comparison is not like for like.
         """
         expected = {r.id: r.count for r in load_roles(CLAUDE_HIERARCHICAL)}
-        for path in [CLAUDE_FLAT, GROQ_HIERARCHICAL, GROQ_FLAT, GROQ_NEUTRAL, GROQ_CTO_ONLY]:
+        for path in [
+            CLAUDE_FLAT,
+            GROQ_HIERARCHICAL,
+            GROQ_FLAT,
+            GROQ_NEUTRAL,
+            GROQ_CTO_ONLY,
+            GROQ_TRAITS,
+            GROQ_FLAT_TRAITS,
+        ]:
             with self.subTest(config=path.name):
                 self.assertEqual({r.id: r.count for r in load_roles(path)}, expected)
 
@@ -122,6 +141,61 @@ class CrossBackendTest(unittest.TestCase):
             by_id(GROQ_HIERARCHICAL)["cto"].personality,
             by_id(GROQ_FLAT)["cto"].personality,
         )
+
+
+class TraitsOnlyAblationTest(unittest.TestCase):
+    """The traits-only arms must differ from their rules counterparts in
+    phrasing ONLY, and must genuinely be traits rather than rules in
+    different words.
+    """
+
+    def test_models_tiers_and_counts_match_the_arm_being_ablated(self):
+        for traits, rules in TRAITS_PAIRS:
+            with self.subTest(config=traits.name):
+                t, r = by_id(traits), by_id(rules)
+                self.assertEqual(
+                    {k: (v.model, v.tier, v.count) for k, v in t.items()},
+                    {k: (v.model, v.tier, v.count) for k, v in r.items()},
+                )
+
+    def test_every_role_still_has_a_persona(self):
+        """A traits ablation is not the no-persona control. If a role
+        lost its persona here, this arm would silently become a second,
+        badly-named copy of the neutral arm.
+        """
+        for traits, _ in TRAITS_PAIRS:
+            for rid, role in by_id(traits).items():
+                with self.subTest(config=traits.name, role=rid):
+                    self.assertIsNotNone(role.personality)
+                    self.assertGreater(len(role.personality.strip()), 40)
+
+    def test_the_wording_actually_differs_from_the_rules_version(self):
+        for traits, rules in TRAITS_PAIRS:
+            for rid in by_id(traits):
+                with self.subTest(config=traits.name, role=rid):
+                    self.assertNotEqual(
+                        by_id(traits)[rid].personality, by_id(rules)[rid].personality
+                    )
+
+    def test_no_traits_persona_names_another_role(self):
+        """The mechanical difference between a trait and a rule here.
+        "Product and Engineering are expected to defer to you" is a
+        statement about the org chart; "you are decisive" is not. Naming
+        a role is the tell, so it is what gets asserted.
+        """
+        for traits, _ in TRAITS_PAIRS:
+            for rid, role in by_id(traits).items():
+                text = role.personality.lower()
+                for word in ROLE_WORDS:
+                    with self.subTest(config=traits.name, role=rid, word=word):
+                        self.assertNotIn(word, text)
+
+    def test_the_rules_versions_do_name_roles(self):
+        """The opposite direction, so the test above is known to be
+        discriminating rather than vacuously true of any text.
+        """
+        hierarchical_cto = by_id(GROQ_HIERARCHICAL)["cto"].personality.lower()
+        self.assertTrue(any(word in hierarchical_cto for word in ROLE_WORDS))
 
 
 class FlatArmConfoundTest(unittest.TestCase):
