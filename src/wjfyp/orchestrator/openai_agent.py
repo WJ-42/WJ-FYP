@@ -246,9 +246,20 @@ def _assistant_message(message: Any, keep_call_ids: set[str] | None = None) -> d
     See _invoke_in_progress's handling of hallucinated tool names for
     why a call sometimes has to be left out of history entirely.
     """
-    out: dict[str, Any] = {"role": "assistant"}
-    if message.content:
-        out["content"] = message.content
+    # `content` is ALWAYS present, even when empty.
+    #
+    # qwen3 returns its text in a `reasoning` field and leaves `content`
+    # empty, so an iteration where it also makes no usable tool call
+    # produced a bare {"role": "assistant"} with neither key. Ollama
+    # rejects that with 400 "invalid message content type: <nil>", and
+    # because the message stays in history EVERY later request in the
+    # turn fails the same way - a burst of refusals in milliseconds that
+    # empties the iteration budget and leaves a turn that did nothing.
+    #
+    # An empty string is valid for both shapes the spec allows (content
+    # alongside tool_calls, and content alone), so this costs nothing on
+    # the endpoints that were already happy.
+    out: dict[str, Any] = {"role": "assistant", "content": message.content or ""}
     calls = [
         call
         for call in (message.tool_calls or [])
