@@ -224,11 +224,36 @@ _SANDBOX_TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "write_file",
-        "description": "Create or overwrite a file in the sandbox with the given content.",
+        "description": (
+            "Create a NEW file, or completely replace one. To change part of an existing "
+            "file, use replace_in_file instead - rewriting a whole file to alter a few "
+            "lines risks corrupting the parts you meant to leave alone."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
             "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "name": "replace_in_file",
+        "description": (
+            "Change part of an existing file by replacing an exact snippet of it. "
+            "`old_text` must appear EXACTLY once in the file, matching whitespace and "
+            "indentation character for character, so include enough surrounding lines to "
+            "make it unique. Everything outside the snippet is left untouched. Prefer this "
+            "over write_file for any edit to a file that already exists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old_text": {"type": "string"},
+                "new_text": {"type": "string"},
+            },
+            "required": ["path", "old_text", "new_text"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -349,6 +374,62 @@ def _has_missing_module(text: str) -> bool:
     return any(sig in text for sig in _MISSING_MODULE_SIGNATURES)
 
 
+def _replace_in_file(
+    sandbox: SandboxController, path: str, old_text: str, new_text: str
+) -> tuple[str, bool]:
+    """Replaces one exact, unique snippet of a file.
+
+    Added after a real run on 03/11/2026 that got the TASK right and
+    the FILE wrong. Asked to correct two answers in a 40-line YAML
+    file, both team structures produced the two correct values and
+    re-indented the surrounding block while rewriting the file whole,
+    leaving YAML that no longer parsed. The checkpoints read that file
+    to verify the answers, so a correct solution scored 1 of 3.
+
+    That is not a reasoning limit, it is a transcription limit: an 8B
+    model asked to reproduce forty lines verbatim while changing two of
+    them will eventually get a line wrong, and `write_file` makes every
+    edit that bet. An exact-match replacement does not ask the model to
+    reproduce anything it is not changing.
+
+    Both failure modes are refused rather than guessed at:
+
+      * no match - usually whitespace, so say so, since the model
+        cannot see why its string missed.
+      * several matches - replacing the first would silently edit a
+        place the model did not look at, which is the corruption this
+        exists to prevent. It is told to widen the snippet instead.
+    """
+    try:
+        current = sandbox.read_file(path)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the agent, not raised
+        return f"{type(exc).__name__}: {exc}", True
+
+    occurrences = current.count(old_text)
+    if occurrences == 0:
+        return (
+            f"no match in {path}: old_text does not appear in the file exactly as given. "
+            "The match is literal, including indentation and trailing spaces. Read the "
+            "file again and copy the snippet from it rather than retyping it.",
+            True,
+        )
+    if occurrences > 1:
+        return (
+            f"{occurrences} matches in {path}: old_text is not unique, so replacing it "
+            "would change places you have not looked at. Include more of the surrounding "
+            "lines until the snippet appears only once.",
+            True,
+        )
+
+    sandbox.write_file(path, current.replace(old_text, new_text, 1))
+    delta = len(new_text) - len(old_text)
+    return (
+        f"replaced 1 occurrence in {path} ({delta:+d} bytes); the rest of the file is "
+        "unchanged",
+        False,
+    )
+
+
 def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> tuple[str, bool]:
     """Runs one sandbox tool call for real. Returns (result_text, is_error).
 
@@ -365,6 +446,10 @@ def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> 
         if name == "write_file":
             sandbox.write_file(args["path"], args["content"])
             return f"wrote {len(args['content'])} bytes to {args['path']}", False
+        if name == "replace_in_file":
+            return _replace_in_file(
+                sandbox, args["path"], args["old_text"], args["new_text"]
+            )
         if name == "run_command":
             result = sandbox.run_command(args["cmd"])
             text = f"exit code {result.exit_code}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
