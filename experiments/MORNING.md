@@ -1,52 +1,53 @@
-# Overnight batch, started 2026-11-04 07:12:18
+# Status at 2026-11-04 09:00
 
-## The alarm will have woken you if anything needed you
+## The overnight batch FAILED and was restarted
 
-It rings on four things only, and all four are terminal states that
-need a person:
+The 07:12 batch produced ZERO scored runs. Both runs died on
+`openai.APITimeoutError`, losing 68 and 19 minutes of completed work.
+The alarm fired at 08:41 and it was correct.
 
-1. All 22 runs finished.
-2. The batch stopped early without finishing.
-3. Two runs in a row produced no scores, so something systemic broke.
-4. The Windows inference server stopped answering.
+**The server was never at fault.** `REQUEST_TIMEOUT` was 90 seconds, a
+figure chosen for Groq, applied unchanged to a self-hosted endpoint
+where qwen3:8b generates at 7.5 tokens/sec because ~36% of it runs on
+the CPU at a 16384 context on a 6 GB card. A 4096-token reply needs
+560 seconds. Anything over ~670 tokens could not finish, and all six
+retries re-sent the same doomed request.
 
-It does NOT ring for a single stalled run, because the supervisor kills
-that run and the batch carries on by itself.
+Confirmed from the Windows server's own logs: two runs of exactly 7
+failures (1 attempt + 6 retries), no sleep, no GPU reset, no model
+reload, and other requests served normally throughout.
 
-To silence it: click **STOP ALARM** on the dialog, or run
+Fixed in commit 4d18b19: 700 second timeout, 1 retry, and a timeout now
+costs one ITERATION rather than the whole run. 342 tests passing.
+
+## Open decisions for you
+
+1. **qwen3:4b instead of 8b?** The Windows session measured the 4b at
+   53 tok/s against the 8b's 7.5, because the 4b fits the GPU entirely.
+   That is a 7x speed difference and much larger than the figure the
+   earlier 4b-vs-8b comparison was based on. The old finding that the
+   8b wins on time-per-ticket was measured before this was known AND
+   against the broken grader, so it is not safe to rely on. Worth
+   re-testing before committing another long batch to the 8b.
+2. **The 05/11 supervisor agenda** still quotes "2/5 against 1/5",
+   which is not safe to present. Decide with the batch results.
+3. **FYP-64 needs the Anthropic top-up.** 22 matched Claude runs is
+   about $4.50 at measured token rates, so $20 covers it with room.
+4. **Commit 706d064's comments still describe a context truncation bug
+   that was later DISPROVED.** `token_cost.prompt` is a per-turn SUM,
+   not one request. The trim is a valid safety net built on a wrong
+   diagnosis. Wording needs correcting when the tree is free.
+
+## The alarm
+
+Rings only on: all runs finished, the batch stopped early, two
+consecutive runs scoring nothing, or the inference server gone. Silence
+it with the STOP ALARM button or
 `~/Projects/WJ-FYP/experiments/alarm/alarm.sh stop`.
-It restores your volume and mute state either way, and gives up on its
-own after 45 minutes.
 
 ## Read these in order
 
-1. `task2_batch_summary.txt` - one line per completed run, plus a
-   "batch finished" line if it got all the way through.
-2. `supervisor.log` - everything the watchdog did and why the alarm
-   rang. Only the "supervisor up" lines means a clean night.
-3. `janitor.log` - which runs had their 89 MB checkouts reclaimed.
-4. Then run the analysis:
-   `cd ~/Projects/WJ-FYP && .venv/bin/python experiments/scripts/analyse_batch.py`
-   for the sign test, score distribution, trim counts and failure modes.
-
-## What each log line means
-
-- A summary line with EMPTY scores (`hierarchical=  flat=`) is a run
-  that crashed or was killed by the watchdog. `supervisor.log` says
-  which.
-- `STALL` means a run made no event log write for 30 minutes and was
-  killed so the batch could advance. The runs around it are unaffected.
-- `ABORT` means the batch was stopped deliberately. Runs already in the
-  summary remain valid.
-
-## Known open items
-
-- The source comments and commit 706d064 still describe a context
-  truncation bug that was later DISPROVED. `token_cost.prompt` is a
-  per-turn SUM, not one request, so no prompt ever exceeded the window.
-  The trim is a valid safety net built on a wrong diagnosis. Fix the
-  wording once the batch is done and the tree is safe to edit.
-- The 05/11 supervisor agenda still quotes "2/5 against 1/5", which is
-  not safe to present. Decide with the batch results.
-- FYP-64 needs an Anthropic top-up. 22 matched Claude runs is about
-  $4.50 at measured token rates, so $20 covers it with room.
+1. `task2_batch_summary.txt`
+2. `supervisor.log`
+3. `pacer.log` for how many runs it decided to keep and why
+4. `.venv/bin/python experiments/scripts/analyse_batch.py`
