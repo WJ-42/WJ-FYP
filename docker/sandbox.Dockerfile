@@ -20,7 +20,18 @@ FROM python:3.12-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir pytest
+    && pip install --no-cache-dir pytest \
+    # Document libraries imported by the agent_skills package in the
+    # sde-write-a-unit-test target repo. The task's test imports
+    # append_file, and Python executes the whole package chain on the
+    # way down, so without these the test cannot collect at all. That
+    # is what made run_tests report "passed, no tests ran" and tell the
+    # agent its work was verified when nothing had been checked.
+    #
+    # Installed for real rather than stubbed. Stubs have to predict
+    # every shape the importing code uses - attribute, call, subclass -
+    # and each wrong guess only reveals the next one.
+    && pip install --no-cache-dir python-docx python-pptx PyPDF2 pylatexenc openai
 
 RUN useradd --create-home --shell /bin/sh sandbox
 USER sandbox
