@@ -48,6 +48,7 @@ Where the two APIs actually differ, and what this does about it:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -142,6 +143,70 @@ MAX_EMPTY_RESAMPLES = 3
 # success in between resets - so four in a row with no generation at all
 # is the server, not the model.
 MAX_CONSECUTIVE_REJECTIONS = 4
+
+
+# The prompt budget for ONE In Progress request, in tokens, covering the
+# transcript and the tool schemas together.
+#
+# This exists because of a measured failure rather than a precaution. On
+# 04/11/2026, with the grader finally giving real pass/fail feedback,
+# run 1 of the task-2 batch spent 45 minutes on a single turn against a
+# 16,384-token server window with a prompt of 28,076 tokens. Ollama
+# front-truncated it, so the model lost its own earlier attempts and
+# oscillated between two assertions it had already seen fail:
+#
+#     "original contentappended content"       -> fails, there is a \n
+#     "original content\nappended content"     -> fails, trailing \n too
+#
+# It never reached the correct third form, because by the time it came
+# back round the record of the first was gone. Five earlier turns in the
+# same run, at 4,000 to 5,700 prompt tokens, each finished in 2 to 6
+# minutes. The difference was entirely the window.
+#
+# Trimming in this module rather than raising the server's window is the
+# deliberate choice. 32,768 tokens of KV cache would cost roughly 1.2
+# GiB more than the 16,384 now in use, on a 6 GB card already holding
+# 4 GB of weights, so it would spill into host RAM and run slower still.
+# A transcript that fits costs nothing.
+#
+# 11,000 leaves room under a 16,384 window for MAX_OUTPUT_TOKENS of
+# completion plus headroom for the tokenizer estimate being wrong in the
+# unsafe direction. Override it when the server's window differs - this
+# number is a property of the SERVER, not of this code.
+CONTEXT_BUDGET_TOKENS = int(os.environ.get("WJFYP_CONTEXT_BUDGET_TOKENS", "11000"))
+
+# Nothing in the OpenAI-compatible API reports a tokenizer, so the
+# budget is enforced against an estimate from character counts. 3.5 is
+# the starting guess, below English's 4 to 5 because transcripts here
+# are mostly code and JSON, which tokenize worse. It is only a seed:
+# _calibrate replaces it with the ratio the server itself reports, so a
+# model whose tokenizer differs corrects itself after one request.
+#
+# The bounds exist so a single odd reading cannot disable the trim. A
+# ratio read as very high would make every transcript look small and
+# every prompt fit, which is the exact failure this guards against, so
+# an implausible measurement is discarded rather than trusted.
+_CHARS_PER_TOKEN_SEED = 3.5
+_CHARS_PER_TOKEN_BOUNDS = (2.0, 6.0)
+
+# The most recent exchange is never dropped: it holds the action the
+# model just took and the result it needs to react to, so a turn without
+# it cannot proceed at all. One, not two, because tool results are
+# already capped at 2,000 characters by claude_agent._truncate while an
+# assistant message can carry a whole file, and a floor of two could
+# therefore exceed the budget on its own.
+_MIN_KEPT_GROUPS = 1
+
+# How much of a dropped call's arguments survives into the digest.
+# Enough to tell two attempts apart - which assertion, which path - and
+# not enough to put the file back in the prompt.
+_DIGEST_ARG_CHARS = 140
+
+# A dropped-call digest is bounded too, or it would grow into the thing
+# it replaces. Twelve iterations of a few calls each fits well inside
+# this; past it the OLDEST lines are kept, because the point of the
+# digest is remembering what already failed.
+_MAX_DIGEST_LINES = 40
 
 
 class ContextWindowExceeded(RuntimeError):
@@ -383,6 +448,69 @@ def build_agent_pool(
     }
 
 
+def _exchange_groups(body: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Splits the appended part of a transcript into units that can be
+    dropped whole.
+
+    A group is one assistant message plus every tool reply answering its
+    tool_call ids, because that pairing is required rather than
+    conventional: an assistant message holding a call whose reply is
+    missing is rejected by the endpoint, and so is a reply whose call
+    has gone. Whole groups are therefore the only safe granularity, and
+    trimming by message count would produce a transcript no server
+    accepts. A plain user message - the corrections and nudges this loop
+    appends - stands alone.
+    """
+    groups: list[list[dict[str, Any]]] = []
+    for msg in body:
+        if msg.get("role") == "tool" and groups and groups[-1][0].get("role") == "assistant":
+            groups[-1].append(msg)
+        else:
+            groups.append([msg])
+    return groups
+
+
+def _digest_group(group: list[dict[str, Any]]) -> list[str]:
+    """One line per tool call in a group about to be dropped: what was
+    called, enough of the arguments to identify the attempt, and whether
+    it worked.
+
+    The outcome is the part that matters. Dropping an exchange silently
+    is what produced the oscillation described above CONTEXT_BUDGET_TOKENS,
+    so a trim that only freed space would reproduce that bug more
+    cheaply. Carrying the failures forward is the point.
+    """
+    head = group[0]
+    if head.get("role") != "assistant":
+        return []
+    replies = {m.get("tool_call_id"): m for m in group[1:]}
+    lines: list[str] = []
+    for call in head.get("tool_calls") or []:
+        function = call.get("function") or {}
+        name = function.get("name") or "?"
+        args = " ".join((function.get("arguments") or "").split())
+        if len(args) > _DIGEST_ARG_CHARS:
+            args = args[:_DIGEST_ARG_CHARS] + " ..."
+        content = (replies.get(call.get("id")) or {}).get("content") or ""
+        outcome = "FAILED" if content.startswith("ERROR:") else "ok"
+        lines.append(f"- {name} {args} -> {outcome}")
+    return lines
+
+
+def _elision_note(lines: list[str]) -> str:
+    """The text appended to the ticket turn in place of what was cut."""
+    kept = lines[:_MAX_DIGEST_LINES]
+    body = "\n".join(kept)
+    if len(lines) > _MAX_DIGEST_LINES:
+        body += f"\n- ... and {len(lines) - _MAX_DIGEST_LINES} further steps"
+    return (
+        "\n\n--- EARLIER STEPS THIS TURN ---\n"
+        "Your earlier steps have been summarised to fit the context window. "
+        "You already did the following, oldest first. Anything marked FAILED "
+        "did not work, so do not try it again unchanged.\n" + body
+    )
+
+
 class OpenAIAgent:
     """An Agent (see orchestrator/agent.py's Protocol) backed by an
     OpenAI-compatible endpoint, covering the same FSM stages ClaudeAgent
@@ -419,6 +547,10 @@ class OpenAIAgent:
         self._client = client
         self._event_log = event_log
         self._spend_guard = spend_guard
+        # Replaced by the ratio the server reports, after the first
+        # request of the first turn. Lives on the instance rather than
+        # the turn so later turns start already calibrated.
+        self._chars_per_token = _CHARS_PER_TOKEN_SEED
 
     def _create(self, **kwargs: Any) -> Any:
         """Every real API call goes through here, never
@@ -567,6 +699,96 @@ class OpenAIAgent:
             )
         )
 
+    def _calibrate(self, sent_chars: int, prompt_tokens: int) -> None:
+        """Learns the server's characters-per-token from what it just
+        reported, so the budget is enforced against this model's real
+        tokenizer rather than a guess.
+
+        An implausible ratio is discarded rather than stored. A ratio
+        read as too high would make every transcript look small, every
+        prompt look like it fits, and the trim never fire - which is the
+        failure this whole mechanism exists to prevent, so a bad reading
+        must not be able to cause it.
+
+        A truncated prompt is itself a source of bad readings: the
+        reported count stops tracking what was sent, so the ratio climbs.
+        The upper bound catches that case too.
+        """
+        if prompt_tokens <= 0 or sent_chars <= 0:
+            return
+        low, high = _CHARS_PER_TOKEN_BOUNDS
+        ratio = sent_chars / prompt_tokens
+        if low <= ratio <= high:
+            self._chars_per_token = ratio
+
+    def _estimated_tokens(self, chars: int) -> int:
+        return int(chars / self._chars_per_token)
+
+    def _trim_transcript(
+        self,
+        messages: list[dict[str, Any]],
+        system_message: dict[str, Any],
+        ticket_turn: str,
+        fixed_chars: int,
+        elided: list[str],
+        context: AgentContext | None = None,
+        turn_id: UUID | None = None,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Drops the oldest exchanges until the prompt fits the budget,
+        replacing them with a digest of what they did.
+
+        `fixed_chars` is the tool schemas, which are re-sent with every
+        request and count toward the server's window just as the
+        transcript does. Budgeting against the transcript alone would
+        under-count by a fixed and substantial amount.
+
+        The system prompt and the ticket turn are never candidates. The
+        system prompt carries the role persona, which is this project's
+        independent variable: a turn that has lost it is not a
+        measurement of anything, which is the argument ContextWindowExceeded
+        makes at more length. The ticket is what the turn is for.
+
+        Returns the transcript to send and the accumulated digest, which
+        the caller carries into the next iteration - a line, once
+        written, is never dropped, so an attempt that failed early stays
+        visible for the rest of the turn.
+        """
+        def fits(candidate: list[dict[str, Any]]) -> bool:
+            chars = fixed_chars + len(json.dumps(candidate, default=str))
+            return self._estimated_tokens(chars) <= CONTEXT_BUDGET_TOKENS
+
+        if fits(messages):
+            return messages, elided
+
+        groups = _exchange_groups(messages[2:])
+        digest = list(elided)
+
+        def rebuild() -> list[dict[str, Any]]:
+            user_content = ticket_turn + (_elision_note(digest) if digest else "")
+            return [
+                system_message,
+                {"role": "user", "content": user_content},
+                *[m for group in groups for m in group],
+            ]
+
+        dropped = 0
+        while len(groups) > _MIN_KEPT_GROUPS:
+            digest.extend(_digest_group(groups.pop(0)))
+            dropped += 1
+            candidate = rebuild()
+            if fits(candidate):
+                self._log_trim(context, turn_id, dropped, len(groups), fitted=True)
+                return candidate, digest
+
+        # Down to the floor and still over. Returned anyway rather than
+        # raised: the alternative is losing a run over one oversized
+        # exchange, and _check_context_held is still behind this if the
+        # server does truncate. A budget that cannot fit a single
+        # exchange is a misconfigured budget, and the guard says so in
+        # those terms.
+        self._log_trim(context, turn_id, dropped, len(groups), fitted=False)
+        return rebuild(), digest
+
     def _check_context_held(
         self, prompt_tokens: int, last_prompt_tokens: int, appended_chars: int
     ) -> None:
@@ -575,10 +797,24 @@ class OpenAIAgent:
         Checking the reported prompt size against a ceiling would mean
         knowing the ceiling, and nothing in the OpenAI-compatible API
         reports it - /api/ps is Ollama-specific and vLLM has its own.
-        So this uses the one invariant that holds on every backend: this
-        loop only ever APPENDS to `messages`, so the prompt can only
-        grow. If a few thousand characters go in and the reported prompt
-        barely moves, the front went out as the back went in.
+        So this uses the invariant that the transcript grows across an
+        untrimmed stretch of the loop: if a few thousand characters go
+        in and the reported prompt barely moves, the front went out as
+        the back went in.
+
+        This is now the BACKSTOP rather than the mechanism, and it is
+        kept because it is not sufficient on its own. It did not fire
+        during the 04/11/2026 run described above CONTEXT_BUDGET_TOKENS,
+        where a 28,076-token prompt was truncated to 16,384: Ollama
+        reports the PRE-truncation count, so the number kept climbing
+        with the transcript while the model attended to only the last
+        16,384 tokens of it. Nothing in the usage numbers distinguished
+        that from a healthy turn. _trim_transcript keeps the prompt
+        under a declared budget instead, and this still catches the case
+        where the declared budget is wrong - a trim that fires on an
+        iteration shrinks the transcript, which makes `appended_chars`
+        negative and takes the early return below, so the two mechanisms
+        do not fight.
 
         The threshold is deliberately slack. English runs about 4 to 5
         characters per token, so dividing by 8 is roughly half the
@@ -608,6 +844,15 @@ class OpenAIAgent:
         parameters_by_tool = {t["function"]["name"]: t["function"]["parameters"] for t in tools}
         valid_tool_names = set(parameters_by_tool)
         messages = self._messages(context, triggers)
+        # Kept aside so _trim_transcript can rebuild the head from the
+        # original each time rather than editing a message in place, which
+        # would make the elision note accumulate on top of itself.
+        system_message = messages[0]
+        ticket_turn = str(messages[1]["content"])
+        # The tool schemas go out with every request and count toward the
+        # server's window exactly as the transcript does.
+        tools_chars = len(json.dumps(tools, default=str))
+        elided: list[str] = []
         total_prompt = 0
         total_completion = 0
         final_args: dict[str, Any] | None = None
@@ -627,6 +872,9 @@ class OpenAIAgent:
         tool_log: list[str] = []
 
         for _ in range(MAX_SANDBOX_ITERATIONS):
+            messages, elided = self._trim_transcript(
+                messages, system_message, ticket_turn, tools_chars, elided, context, turn_id
+            )
             sent_chars = len(json.dumps(messages, default=str))
             try:
                 response = self._create(
@@ -685,6 +933,7 @@ class OpenAIAgent:
             prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
             total_prompt += prompt_tokens
             total_completion += getattr(usage, "completion_tokens", 0) or 0
+            self._calibrate(sent_chars + tools_chars, prompt_tokens)
             self._check_context_held(
                 prompt_tokens, last_prompt_tokens, sent_chars - last_sent_chars
             )
@@ -922,6 +1171,53 @@ class OpenAIAgent:
                 parent_id=turn_id,
                 content=MessageContent(
                     text=_truncate(f"request refused by the endpoint: {reason}")
+                ),
+            )
+        )
+
+    def _log_trim(
+        self,
+        context: AgentContext | None,
+        turn_id: UUID | None,
+        dropped: int,
+        kept: int,
+        fitted: bool,
+    ) -> None:
+        """Records that the transcript was trimmed, and whether it then
+        fitted.
+
+        Logged for the same reason every other unusual path in this
+        module is: an agent that behaves differently because it was shown
+        less of its own history is a confound, and one invisible in the
+        results is the kind that gets written up as a property of the
+        model. A reader comparing two arms needs to know which turns ran
+        on a full transcript and which did not.
+
+        `fitted=False` is the louder case. It means the budget could not
+        accommodate even the most recent exchange, so the server may yet
+        truncate and the budget wants raising or the model changing.
+        """
+        if self._event_log is None or context is None:
+            return
+        verdict = (
+            "now within budget"
+            if fitted
+            else f"STILL over budget at the {_MIN_KEPT_GROUPS}-exchange floor"
+        )
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                parent_id=turn_id,
+                content=MessageContent(
+                    text=_truncate(
+                        f"trimmed transcript for {self._role_config.model}: dropped "
+                        f"{dropped} oldest exchange(s), kept {kept}, "
+                        f"budget {CONTEXT_BUDGET_TOKENS:,} tokens at "
+                        f"{self._chars_per_token:.2f} chars/token; {verdict}"
+                    )
                 ),
             )
         )
