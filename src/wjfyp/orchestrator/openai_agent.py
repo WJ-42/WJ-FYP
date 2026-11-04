@@ -54,7 +54,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from openai import BadRequestError, OpenAI
+from openai import APIConnectionError, APITimeoutError, BadRequestError, OpenAI
 
 from wjfyp.config import DEFAULT_ROLES_PATH, load_roles
 from wjfyp.eventlog import EventLog
@@ -143,6 +143,17 @@ MAX_EMPTY_RESAMPLES = 3
 # success in between resets - so four in a row with no generation at all
 # is the server, not the model.
 MAX_CONSECUTIVE_REJECTIONS = 4
+
+# How many requests may TIME OUT back to back before the turn gives up.
+#
+# A timeout is not the same event as a rejection. A rejection costs
+# nothing and returns instantly, so four in a row means the endpoint is
+# refusing. A timeout costs the full timeout multiplied by the retry
+# count before it even surfaces here, so three of them is already the
+# better part of an hour, and anything more is waiting rather than
+# working. Three, because the recoverable case is one slow generation,
+# and a server that cannot answer three times running is not slow.
+MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 # The prompt budget for ONE In Progress request, in tokens, covering the
@@ -251,6 +262,63 @@ class ContextWindowExceeded(RuntimeError):
 # retry beats waiting. Connect stays short because a connection that
 # cannot be established is never worth waiting on.
 REQUEST_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
+
+# The 90 seconds above is a HOSTED-endpoint figure and it destroyed a
+# batch on 04/11/2026 when applied to a self-hosted one.
+#
+# The arithmetic nobody did at the time, using the rate measured ON THE
+# SERVING MACHINE under real conditions rather than from a short probe:
+#
+#   qwen3:8b generates 7.5 tokens/sec on ~10k-token prompts
+#   plus about 14 seconds to read the prompt
+#   MAX_OUTPUT_TOKENS is 4096
+#   4096 / 7.5 + 14 = 560 seconds for a full-length generation
+#
+# It is that slow because qwen3:8b does NOT fit the 6 GB card at a
+# 16384 context: roughly 36% of it runs on the CPU, and the model runner
+# averaged 7.5 CPU cores busy. A probe using short prompts measured 17.6
+# tokens/sec and was misleading, which is why the figure here comes from
+# the server's own logs.
+#
+# So any response longer than about 670 tokens COULD NOT FINISH inside
+# the old 90 seconds, and this agent routinely produces 2,000+ token
+# turns. The server log shows the consequence exactly: two runs of
+# precisely 7 failures, one attempt plus 6 retries, the same
+# deterministically-slow request re-sent and timing out every time. The
+# server never erred, never unloaded the model and kept serving other
+# requests throughout.
+#
+# 700 seconds clears the 560 with margin. The retry count then has to
+# come DOWN to 1, because the batch supervisor kills a run after 30
+# minutes with no event-log write: 700 x 3 attempts is 35 minutes and
+# would have a healthy run killed as hung while it was merely retrying.
+# 700 x 2 is 23 minutes, which fits.
+#
+# All three numbers are properties of the MODEL'S SPEED, the output cap
+# and the watchdog, so the arithmetic is written down rather than the
+# conclusion. Change any of them and redo it.
+SELF_HOSTED_TIMEOUT_SECONDS = float(os.environ.get("WJFYP_REQUEST_TIMEOUT", "700"))
+SELF_HOSTED_REQUEST_TIMEOUT = httpx.Timeout(SELF_HOSTED_TIMEOUT_SECONDS, connect=10.0)
+
+# Six retries exists to ride out Groq's 8,000-tokens-per-minute 429s. A
+# self-hosted server has no quota to wait out, and a request that is
+# deterministically too slow cannot succeed on a retry - it only burns
+# the timeout again, which is exactly what cost the 04/11 batch.
+SELF_HOSTED_MAX_RETRIES = 1
+
+
+def _client_settings(base_url: str) -> tuple[httpx.Timeout, int]:
+    """Timeout and retry count appropriate to the endpoint.
+
+    Split because the two backends fail in opposite directions. A hosted
+    endpoint is fast but rate limited, so it wants a short timeout and
+    many retries. A self-hosted one is slow but has no quota, so it wants
+    a long timeout and few. Using the hosted numbers for both is what
+    cost the 04/11/2026 batch.
+    """
+    if base_url == DEFAULT_BASE_URL:
+        return REQUEST_TIMEOUT, MAX_RETRIES
+    return SELF_HOSTED_REQUEST_TIMEOUT, SELF_HOSTED_MAX_RETRIES
 
 
 class _UsageShim:
@@ -427,9 +495,8 @@ def build_agent_pool(
     the prompt. For an arm whose whole point is differing capability per
     tier, leave this unset and let the file say what it means.
     """
-    client = OpenAI(
-        api_key=api_key, base_url=base_url, max_retries=MAX_RETRIES, timeout=REQUEST_TIMEOUT
-    )
+    timeout, retries = _client_settings(base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, max_retries=retries, timeout=timeout)
     roles = load_roles(roles_path)
     if model is not None:
         roles = [r.model_copy(update={"model": model}) for r in roles]
@@ -867,6 +934,7 @@ class OpenAIAgent:
         last_prompt_tokens = 0
         last_sent_chars = 0
         consecutive_rejections = 0
+        consecutive_timeouts = 0
         # What the turn actually did, for the forced final turn below,
         # which cannot be shown the real history. One line per tool call.
         tool_log: list[str] = []
@@ -884,6 +952,29 @@ class OpenAIAgent:
                     tools=tools,
                     tool_choice="auto",
                 )
+            except (APITimeoutError, APIConnectionError) as exc:
+                # A timeout used to kill the whole run. On 04/11/2026
+                # that threw away 68 minutes of completed work on one
+                # slow generation, which is the worst possible response
+                # to a transient fault: the turn had already committed
+                # real code and the sandbox was discarded unscored.
+                #
+                # Treated like a rejected request instead - say nothing
+                # to the model, spend an iteration, and carry on. The
+                # transcript is unchanged, so the retry is a genuine
+                # retry rather than a continuation of a broken state.
+                consecutive_timeouts += 1
+                tool_log.append("request timed out")
+                self._log_timeout(context, turn_id, consecutive_timeouts)
+                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                    raise RuntimeError(
+                        f"{self._role_config.model} timed out {consecutive_timeouts} times in a "
+                        f"row against {self._client.base_url}. Each attempt already exhausted the "
+                        "client's own retries, so this is the server not answering rather than one "
+                        "slow generation. Check it is up and that the timeout suits the model's "
+                        "speed (see SELF_HOSTED_TIMEOUT_SECONDS)."
+                    ) from exc
+                continue
             except BadRequestError as exc:
                 # Groq validates the tool call the model GENERATES, not
                 # just the ones replayed from history, and fails the
@@ -929,6 +1020,7 @@ class OpenAIAgent:
                     ) from exc
                 continue
             consecutive_rejections = 0
+            consecutive_timeouts = 0
             usage = response.usage
             prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
             total_prompt += prompt_tokens
@@ -1217,6 +1309,34 @@ class OpenAIAgent:
                         f"{dropped} oldest exchange(s), kept {kept}, "
                         f"budget {CONTEXT_BUDGET_TOKENS:,} tokens at "
                         f"{self._chars_per_token:.2f} chars/token; {verdict}"
+                    )
+                ),
+            )
+        )
+
+    def _log_timeout(self, context: AgentContext, turn_id: UUID, n: int) -> None:
+        """Records a request that timed out.
+
+        Logged for the same reason resamples and rejections are: a turn
+        that spent iterations waiting rather than working produced less,
+        and with no trace of it that shows up in the results as a model
+        that did less work. The count matters too, because one timeout
+        is a slow generation and three is a server.
+        """
+        if self._event_log is None:
+            return
+        self._event_log.append_message(
+            Message(
+                sender=AgentRef(role=self.role, instance_id=self.instance_id),
+                channel_id=context.channel_id,
+                ticket_ref=context.ticket.id,
+                type=MessageType.SYSTEM,
+                parent_id=turn_id,
+                content=MessageContent(
+                    text=_truncate(
+                        f"request to {self._role_config.model} timed out "
+                        f"({n} in a row, limit {MAX_CONSECUTIVE_TIMEOUTS}); "
+                        "retrying this iteration rather than losing the run"
                     )
                 ),
             )

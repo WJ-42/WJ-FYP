@@ -71,8 +71,18 @@ wake() {
 
 driver_pid() { ps -eo pid,comm,args --no-headers | awk '$2=="bash" && /batch_task2[.]sh/ {print $1; exit}'; }
 run_pid()    { ps -eo pid,comm,args --no-headers | awk '$2=="python" && /wjfyp[.]eval[.]cli compare/ {print $1; exit}'; }
-scored()     { grep -cE '^run [0-9]+ ' "$SUM" 2>/dev/null || echo 0; }
-empties()    { grep -cE '^run [0-9]+ +hierarchical= +flat=' "$SUM" 2>/dev/null || echo 0; }
+count_matching() {
+  # NOT `grep -c ... || echo 0`. grep -c prints 0 and exits 1 when there
+  # are no matches, so the || fired as well and the caller received the
+  # two-line string "0\n0", which fails every numeric comparison. That
+  # silently skipped the pacer's measurement wait and would have stopped
+  # the supervisor's two-empty-runs abort from ever firing.
+  local n
+  n=$(grep -cE "$1" "$2" 2>/dev/null)
+  echo "${n:-0}"
+}
+scored()     { count_matching '^run [0-9]+ ' "$SUM"; }
+empties()    { count_matching '^run [0-9]+ +hierarchical= +flat=' "$SUM"; }
 
 cleanup_containers() {
   for c in $(docker ps -q --filter ancestor=wjfyp-sandbox:latest 2>/dev/null); do
