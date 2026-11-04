@@ -64,6 +64,22 @@ others_running() {
   [ "$found" = 1 ]
 }
 
+close_notification() {
+  # Dismisses only THIS alarm's banner, by the id notify-send returns.
+  # swaync-client --close-all would do it in one line but would also wipe
+  # every unrelated notification on screen, and a critical banner does
+  # not expire on its own, so without this they stack up down the side of
+  # the display after each alarm.
+  local st="$1" nid
+  nid=$(cat "$st/notifid" 2>/dev/null) || return 0
+  [ -n "${nid:-}" ] || return 0
+  gdbus call --session --dest org.freedesktop.Notifications \
+    --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.CloseNotification "$nid" >/dev/null 2>&1
+  rm -f "$st/notifid"
+  return 0
+}
+
 restore_volume() {
   local me="$1"
   # Only the LAST alarm standing puts the volume back, or it would be
@@ -96,6 +112,7 @@ case "${1:-}" in
     [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null
     gpid=$(cat "$STATE/guipid" 2>/dev/null)
     [ -n "${gpid:-}" ] && kill "$gpid" 2>/dev/null
+    close_notification "$STATE"
     restore_volume "$LABEL"
     rm -f "$STATE/pid" "$STATE/guipid"
     echo "$LABEL alarm stopped. volume now $(wpctl get-volume "$SINK" 2>/dev/null)"
@@ -106,8 +123,11 @@ case "${1:-}" in
     save_volume
     wpctl set-mute "$SINK" 0 2>/dev/null
     wpctl set-volume "$SINK" "$SOFT" 2>/dev/null
-    notify-send -u critical "$LABEL alarm test" "This is a test. No action needed." 2>/dev/null
+    mkdir -p "$(label_state "$LABEL")"
+    nid=$(notify-send -p -u critical "$LABEL alarm test" "This is a test. No action needed." 2>/dev/null) \
+      && echo "$nid" > "$(label_state "$LABEL")/notifid"
     timeout "$secs" paplay "$CHIME" 2>/dev/null
+    close_notification "$(label_state "$LABEL")"
     restore_volume "$LABEL"
     echo "$LABEL test done, ${secs}s at $SOFT, volume now $(wpctl get-volume "$SINK" 2>/dev/null)"
     ;;
@@ -121,7 +141,7 @@ case "${1:-}" in
     echo "$why" > "$STATE/reason"
     save_volume
     wpctl set-mute "$SINK" 0 2>/dev/null
-    notify-send -u critical "$LABEL ALARM" "$why" 2>/dev/null
+    nid=$(notify-send -p -u critical "$LABEL ALARM" "$why" 2>/dev/null) && echo "$nid" > "$STATE/notifid"
     # zenity is backgrounded DIRECTLY, not inside a subshell, so $! is
     # zenity's own pid. Wrapped in a subshell it was the subshell's pid,
     # and killing that left the dialog on screen after the alarm stopped,
@@ -142,7 +162,7 @@ case "${1:-}" in
       kill -0 "$gui" 2>/dev/null || gui=""
       [ -n "$gui" ] && echo "$gui" > "$STATE/guipid"
     fi
-    trap 'kill $gui 2>/dev/null; restore_volume "$LABEL"; rm -f "$STATE/pid" "$STATE/guipid"; exit 0' EXIT INT TERM
+    trap 'kill $gui 2>/dev/null; close_notification "$STATE"; restore_volume "$LABEL"; rm -f "$STATE/pid" "$STATE/guipid"; exit 0' EXIT INT TERM
     deadline=$(( $(date +%s) + MAX_MIN * 60 ))
     vol=$SOFT
     while [ ! -f "$STATE/stop" ] && [ "$(date +%s)" -lt "$deadline" ]; do
@@ -169,6 +189,7 @@ case "${1:-}" in
       sleep 0.4
     done
     kill "$gui" 2>/dev/null
+    close_notification "$STATE"
     restore_volume "$LABEL"
     rm -f "$STATE/pid" "$STATE/guipid"
     ;;
