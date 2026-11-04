@@ -22,3 +22,4 @@ def register(task: EvalTask) -> EvalTask:
 # so importing this package is what actually populates TASKS.
 from wjfyp.eval.tasks import sde_fix_factual_mistake  # noqa: E402,F401
 from wjfyp.eval.tasks import sde_write_a_unit_test  # noqa: E402,F401
+from wjfyp.eval.tasks import sde_write_a_unit_test_strict  # noqa: E402,F401
