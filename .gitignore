@@ -6,3 +6,4 @@ data/
 .env
 .impeccable/
 !deploy/demo-eventlog.db
+.grader-venv/

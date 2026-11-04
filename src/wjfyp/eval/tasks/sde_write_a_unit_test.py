@@ -63,8 +63,10 @@ without abandoning the destructive-verification technique altogether.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -100,14 +102,36 @@ def _checkpoint_test_function_exists(ctx: GradingContext) -> bool:
     )
 
 
+# Interpreter used to grade. The ported original shells out to
+# `poetry run pytest`, which cannot work here: poetry is not installed,
+# and the 379-package lock behind it pins a 2024 dependency set that no
+# longer resolves (e2b lost the submodule the repo imports, and
+# tree_sitter_languages ships no wheel for Python 3.14).
+#
+# This was not a dormant imperfection. It silently zeroed the two
+# checkpoints worth 3 of this task's 5 points: subprocess raises
+# FileNotFoundError, score_task catches it, and the run scores 2/5 no
+# matter how good the agent's test was. A whole batch was run before
+# anyone noticed the ceiling was the harness rather than the model.
+#
+# WJFYP_GRADER_PYTHON points at an interpreter that can import the
+# module under test. Falling back to the running interpreter keeps the
+# unit tests working, and a missing environment now shows up as a
+# failed checkpoint WITH an error rather than a silent zero.
+GRADER_PYTHON = os.environ.get("WJFYP_GRADER_PYTHON", sys.executable)
+
+
 def _run_pytest_with_stats(repo_path: str, function_name: str = "") -> dict[str, int]:
     target = f"{TEST_FILE}::{function_name}" if function_name else TEST_FILE
     result = subprocess.run(
         [
-            "poetry",
-            "run",
+            GRADER_PYTHON,
+            "-m",
             "pytest",
-            "--forked",
+            # --forked dropped. pytest-forked 1.7.5 is broken on Python
+            # 3.14 (the child exits with status 3 before the test runs),
+            # and it bought nothing here anyway: this grader runs ONE
+            # test, so there is nothing to isolate it from.
             "--color=no",
             "--cov=openhands",
             f"--cov-report=xml:{COVERAGE_XML}",
