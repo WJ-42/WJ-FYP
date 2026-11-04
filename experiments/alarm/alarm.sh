@@ -1,127 +1,179 @@
 #!/bin/bash
-# An audible alarm that can wake a sleeping person, for when an
-# unattended batch fails and a phone push would not be enough.
+# An audible alarm that can wake a sleeping person, for when unattended
+# work fails and a phone push would not be enough.
 #
 # A push notification assumes someone is looking at a screen. This does
 # not: it forces the sink unmuted, then loops a struck-bell arpeggio
-# until it is stopped.
+# until it is stopped, and raises a dialog with a STOP ALARM button
+# because remembering a shell command half asleep is not a dismissal
+# mechanism.
 #
-# It CRESCENDOS rather than starting at full volume. The first cycles are
-# quiet enough to surface someone gently, and it reaches full volume
-# after about 75 seconds if they sleep through it. A siren at full blast
-# from the first second was the earlier version and was rejected for
-# being horrible, which matters: an alarm unpleasant enough to be
-# disabled protects nothing.
+# It CRESCENDOS rather than starting at full volume. The first version
+# was a full-scale two-tone siren from the first second and was rejected
+# for being horrible, which matters: an alarm unpleasant enough to be
+# switched off protects nothing.
 #
-# The original volume and mute state are saved and restored, so a false
-# alarm does not leave the machine at full blast.
+# MULTI-TENANT. More than one project can use this at once, so every
+# instance is namespaced by a label. Without that, two callers sharing
+# one state directory would mean either one silencing the other, one's
+# volume restore clobbering the other's saved level, and no way to tell
+# from the dialog which project was asking for you.
 #
 # Usage:
-#   alarm.sh start "reason shown on screen"   loops until stopped
-#   alarm.sh stop                             stops it, restores volume
-#   alarm.sh test [seconds]                   short burst, default 4
+#   alarm.sh start "reason" [label]    loops until stopped
+#   alarm.sh stop [label]              stops that label, restores volume
+#   alarm.sh test [seconds] [label]    short burst
+#
+# The label defaults to WJFYP, so existing callers keep working.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHIME="$HERE/chime.wav"
-STATE="/tmp/wjfyp-alarm"
-STOP="$STATE/stop"
-SAVED="$STATE/saved-volume"
-REASON="$STATE/reason"
 SINK="@DEFAULT_AUDIO_SINK@"
-# Volume above 1.0 is PipeWire's software boost. The alarm walks from
-# SOFT to LOUD over the first minute or so rather than jumping.
+
+# The alarm walks from SOFT to LOUD over about 75 seconds.
 SOFT=0.45
 LOUD=1.5
 STEP=0.08
-# A safety ceiling. If nobody stops it, it gives up rather than screaming
-# at an empty house for hours.
+# A safety ceiling, so it gives up rather than ringing at an empty house.
 MAX_MIN=45
 
-mkdir -p "$STATE"
+# The volume to put back is SHARED across tenants and written once, by
+# whichever alarm rings first. Per-label saves would mean the second
+# alarm recording the first one's crescendo as "the original" and
+# restoring the machine to that.
+ORIG="/tmp/alarm-original-volume"
+
+label_state() { echo "/tmp/alarm-${1}"; }
 
 save_volume() {
-  wpctl get-volume "$SINK" 2>/dev/null > "$SAVED" || echo "Volume: 1.0" > "$SAVED"
+  [ -f "$ORIG" ] && return 0
+  wpctl get-volume "$SINK" 2>/dev/null > "$ORIG" || echo "Volume: 1.0" > "$ORIG"
 }
+
+others_running() {
+  # Any OTHER label with a live alarm loop. Checked by pid file rather
+  # than by matching command lines, which is what made the earlier
+  # supervisor kill the wrong processes.
+  local me="$1" d pid found=0
+  for d in /tmp/alarm-*/; do
+    [ -d "$d" ] || continue
+    [ "$d" = "$(label_state "$me")/" ] && continue
+    pid=$(cat "$d/pid" 2>/dev/null) || continue
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && found=1
+  done
+  [ "$found" = 1 ]
+}
+
 restore_volume() {
-  [ -f "$SAVED" ] || return 0
-  v=$(grep -oE '[0-9]+\.[0-9]+' "$SAVED" | head -1)
+  local me="$1"
+  # Only the LAST alarm standing puts the volume back, or it would be
+  # reset underneath another one still trying to be heard.
+  others_running "$me" && return 0
+  [ -f "$ORIG" ] || return 0
+  local v
+  v=$(grep -oE '[0-9]+\.[0-9]+' "$ORIG" | head -1)
   [ -n "$v" ] && wpctl set-volume "$SINK" "$v" 2>/dev/null
-  grep -q MUTED "$SAVED" && wpctl set-mute "$SINK" 1 2>/dev/null
+  grep -q MUTED "$ORIG" && wpctl set-mute "$SINK" 1 2>/dev/null
+  rm -f "$ORIG"
   return 0
 }
 
 case "${1:-}" in
   stop)
-    touch "$STOP"
-    # Kill any running loop, filtered by comm so an interactive shell
-    # whose command line mentions this script is never matched.
-    for p in $(ps -eo pid,comm,args --no-headers | awk '$2=="bash" && /alarm[.]sh start/ {print $1}'); do
-      kill "$p" 2>/dev/null
+    LABEL="${2:-WJFYP}"
+    STATE=$(label_state "$LABEL")
+    mkdir -p "$STATE"
+    touch "$STATE/stop"
+    # The loop kills its own audio within 0.2s of seeing the stop file,
+    # so there is no need to pkill paplay here - doing that would also
+    # silence another project's alarm.
+    for i in 1 2 3 4 5 6; do
+      pid=$(cat "$STATE/pid" 2>/dev/null) || break
+      [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || break
+      sleep 0.5
     done
-    pkill -x paplay 2>/dev/null
-    # Only dialogs this script raised, matched on the title it sets.
-    for z in $(ps -eo pid,comm,args --no-headers | awk '$2=="zenity" && /WJ-FYP BATCH ALARM/ {print $1}'); do
-      kill "$z" 2>/dev/null
-    done
-    sleep 1
-    restore_volume
-    echo "alarm stopped, volume restored to $(wpctl get-volume "$SINK" 2>/dev/null)"
+    pid=$(cat "$STATE/pid" 2>/dev/null)
+    [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null
+    gpid=$(cat "$STATE/guipid" 2>/dev/null)
+    [ -n "${gpid:-}" ] && kill "$gpid" 2>/dev/null
+    restore_volume "$LABEL"
+    rm -f "$STATE/pid" "$STATE/guipid"
+    echo "$LABEL alarm stopped. volume now $(wpctl get-volume "$SINK" 2>/dev/null)"
     ;;
   test)
-    secs="${2:-4}"
+    secs="${2:-6}"
+    LABEL="${3:-WJFYP}"
     save_volume
     wpctl set-mute "$SINK" 0 2>/dev/null
     wpctl set-volume "$SINK" "$SOFT" 2>/dev/null
-    notify-send -u critical "WJ-FYP alarm test" "This is a test. No action needed." 2>/dev/null
+    notify-send -u critical "$LABEL alarm test" "This is a test. No action needed." 2>/dev/null
     timeout "$secs" paplay "$CHIME" 2>/dev/null
-    restore_volume
-    echo "test done, ${secs}s at volume $SOFT, restored to $(wpctl get-volume "$SINK" 2>/dev/null)"
+    restore_volume "$LABEL"
+    echo "$LABEL test done, ${secs}s at $SOFT, volume now $(wpctl get-volume "$SINK" 2>/dev/null)"
     ;;
   start)
-    why="${2:-the batch needs attention}"
-    rm -f "$STOP"
-    echo "$why" > "$REASON"
+    why="${2:-work needs your attention}"
+    LABEL="${3:-WJFYP}"
+    STATE=$(label_state "$LABEL")
+    mkdir -p "$STATE"
+    rm -f "$STATE/stop"
+    echo "$$" > "$STATE/pid"
+    echo "$why" > "$STATE/reason"
     save_volume
-    trap 'restore_volume; exit 0' EXIT INT TERM
     wpctl set-mute "$SINK" 0 2>/dev/null
-    wpctl set-volume "$SINK" "$LOUD" 2>/dev/null
-    notify-send -u critical "WJ-FYP BATCH ALARM" "$why" 2>/dev/null
-    # A dialog with a stop button, because remembering a shell command
-    # half asleep is not a dismissal mechanism. Clicking it writes the
-    # stop file, which is the same thing `alarm.sh stop` does, so the
-    # button and the command cannot disagree.
-    ( zenity --warning --title="WJ-FYP BATCH ALARM" \
-        --text="$why" --ok-label="STOP ALARM" --width=520 >/dev/null 2>&1
-      touch "$STOP" ) &
-    gui=$!
-    trap 'kill $gui 2>/dev/null; restore_volume; exit 0' EXIT INT TERM
+    notify-send -u critical "$LABEL ALARM" "$why" 2>/dev/null
+    # zenity is backgrounded DIRECTLY, not inside a subshell, so $! is
+    # zenity's own pid. Wrapped in a subshell it was the subshell's pid,
+    # and killing that left the dialog on screen after the alarm stopped,
+    # which is what the two-tenant test caught.
+    #
+    # Its exit IS the stop signal: the loop below watches the pid rather
+    # than having the subshell touch the stop file, which is what made
+    # the wrapper necessary in the first place.
+    gui=""
+    if command -v zenity >/dev/null 2>&1; then
+      zenity --warning --title="$LABEL ALARM" \
+        --text="$why" --ok-label="STOP ALARM" --width=520 >/dev/null 2>&1 &
+      gui=$!
+      sleep 0.5
+      # If the dialog could not start - no display, no zenity - the alarm
+      # must still ring. Treating a failed dialog as a press would
+      # silence it instantly, which is the worst possible failure here.
+      kill -0 "$gui" 2>/dev/null || gui=""
+      [ -n "$gui" ] && echo "$gui" > "$STATE/guipid"
+    fi
+    trap 'kill $gui 2>/dev/null; restore_volume "$LABEL"; rm -f "$STATE/pid" "$STATE/guipid"; exit 0' EXIT INT TERM
     deadline=$(( $(date +%s) + MAX_MIN * 60 ))
     vol=$SOFT
-    while [ ! -f "$STOP" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+    while [ ! -f "$STATE/stop" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+      if [ -n "$gui" ] && ! kill -0 "$gui" 2>/dev/null; then break; fi
       wpctl set-volume "$SINK" "$vol" 2>/dev/null
-      # Played in the BACKGROUND and polled, so pressing STOP is acted on
-      # within a fifth of a second. Running paplay in the foreground meant
-      # the loop could not re-check the stop file until the current 5.4
-      # second chime had finished, so the alarm kept ringing for up to six
-      # seconds after the button was pressed, and the volume restore then
-      # raced the still-running loop and left the machine at whatever the
-      # crescendo had reached. Both were observed on the first real test.
+      # Played in the BACKGROUND and polled, so STOP is acted on within a
+      # fifth of a second. In the foreground the loop could not re-check
+      # the stop file until the current 5.4 second chime finished, so the
+      # alarm kept ringing for up to six seconds after the button was
+      # pressed, and the volume restore then raced the still-running loop
+      # and left the machine at whatever the crescendo had reached. Both
+      # observed on the first real test.
       paplay "$CHIME" 2>/dev/null &
       pp=$!
       while kill -0 "$pp" 2>/dev/null; do
-        if [ -f "$STOP" ]; then kill "$pp" 2>/dev/null; break; fi
+        if [ -f "$STATE/stop" ]; then kill "$pp" 2>/dev/null; break; fi
+        if [ -n "$gui" ] && ! kill -0 "$gui" 2>/dev/null; then kill "$pp" 2>/dev/null; break; fi
         sleep 0.2
       done
       wait "$pp" 2>/dev/null
-      [ -f "$STOP" ] && break
+      [ -f "$STATE/stop" ] && break
+      if [ -n "$gui" ] && ! kill -0 "$gui" 2>/dev/null; then break; fi
       vol=$(awk -v v="$vol" -v s="$STEP" -v m="$LOUD" 'BEGIN{v+=s; if(v>m)v=m; printf "%.2f", v}')
       sleep 0.4
     done
     kill "$gui" 2>/dev/null
-    restore_volume
+    restore_volume "$LABEL"
+    rm -f "$STATE/pid" "$STATE/guipid"
     ;;
   *)
-    echo "usage: alarm.sh start \"reason\" | stop | test [seconds]" >&2
+    echo "usage: alarm.sh start \"reason\" [label] | stop [label] | test [seconds] [label]" >&2
     exit 2
     ;;
 esac
