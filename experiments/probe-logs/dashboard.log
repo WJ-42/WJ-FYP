@@ -1,0 +1,18 @@
+INFO:     Started server process [3941143]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:42156 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42158 - "GET /api/roles HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42160 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42162 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:42160 - "GET /api/roles HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42174 - "GET /api/roles HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42174 - "GET /api/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42160 - "GET /api/tickets HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42176 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3941143]

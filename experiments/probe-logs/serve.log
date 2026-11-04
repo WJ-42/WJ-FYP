@@ -1,0 +1,63 @@
+127.0.0.1 - - [31/Oct/2026 16:50:09] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [31/Oct/2026 16:50:13] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [31/Oct/2026 16:50:13] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:13] "GET /api/roles HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:13] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:13] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:13] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:13] "GET /favicon.ico HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:14] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:14] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:15] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:15] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:17] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:17] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:19] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:19] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:20] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:20] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:21] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:21] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:22] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:22] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:23] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:23] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:24] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:24] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:26] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:26] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:27] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:27] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:28] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:28] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:28] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:28] "GET /api/roles HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:30] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:30] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:32] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:32] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:34] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:34] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:40] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:40] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:45] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:45] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:46] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [31/Oct/2026 16:50:46] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:46] "GET /api/roles HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:48] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:48] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:52] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:52] "GET /api/roles HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:54] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:54] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:50:58] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:50:58] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:51:01] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:51:01] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:51:03] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:51:03] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:51:08] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:51:08] "GET /ws HTTP/1.1" 404 -
+127.0.0.1 - - [31/Oct/2026 16:51:10] code 404, message File not found
+127.0.0.1 - - [31/Oct/2026 16:51:10] "GET /ws HTTP/1.1" 404 -

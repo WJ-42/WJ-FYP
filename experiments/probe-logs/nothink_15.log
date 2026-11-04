@@ -1,0 +1,54 @@
+  model qwen3:8b
+
+  baseline (thinking on)             completion=  250  reasoning_chars= 1007   15.7s  tool_call=NO  
+  baseline (thinking on)             completion=  375  reasoning_chars= 1609   21.2s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  450  reasoning_chars= 1996   25.5s  tool_call=ok  escalated
+  baseline (thinking on)             completion=  460  reasoning_chars= 1903   26.1s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  452  reasoning_chars= 2029   25.6s  tool_call=NO  
+  baseline (thinking on)             completion=  349  reasoning_chars= 1401   19.7s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  364  reasoning_chars= 1548   20.6s  tool_call=NO  
+  baseline (thinking on)             completion=  283  reasoning_chars= 1107   15.8s  tool_call=NO  
+  baseline (thinking on)             completion=  415  reasoning_chars= 1739   23.7s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  403  reasoning_chars= 1736   22.8s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  594  reasoning_chars= 2739   33.9s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  519  reasoning_chars= 2279   29.5s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  319  reasoning_chars= 1350   17.9s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  308  reasoning_chars= 1255   17.3s  tool_call=ok  changes_requested
+  baseline (thinking on)             completion=  509  reasoning_chars= 2176   28.8s  tool_call=ok  changes_requested
+
+  A: enable_thinking=false           completion=  370  reasoning_chars= 1575   20.9s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  232  reasoning_chars=  876   12.9s  tool_call=NO  
+  A: enable_thinking=false           completion=  309  reasoning_chars= 1233   17.3s  tool_call=NO  
+  A: enable_thinking=false           completion=  413  reasoning_chars= 1726   23.5s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  618  reasoning_chars= 2757   35.4s  tool_call=ok  escalated
+  A: enable_thinking=false           completion=  319  reasoning_chars= 1246   18.0s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  472  reasoning_chars= 1990   28.1s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  326  reasoning_chars= 1353   19.1s  tool_call=NO  
+  A: enable_thinking=false           completion=  252  reasoning_chars= 1005   14.8s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  396  reasoning_chars= 1692   22.5s  tool_call=NO  
+  A: enable_thinking=false           completion=  269  reasoning_chars= 1070   15.3s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  323  reasoning_chars= 1344   18.5s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  419  reasoning_chars= 1836   23.7s  tool_call=NO  
+  A: enable_thinking=false           completion=  314  reasoning_chars= 1258   17.4s  tool_call=ok  changes_requested
+  A: enable_thinking=false           completion=  383  reasoning_chars= 1550   21.7s  tool_call=NO  
+
+  B: /no_think in user turn          completion=  368  reasoning_chars= 1587   21.7s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  653  reasoning_chars= 2851   37.7s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  467  reasoning_chars= 2010   26.9s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  441  reasoning_chars= 1977   25.2s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  572  reasoning_chars= 2530   32.6s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  498  reasoning_chars= 2177   27.9s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  320  reasoning_chars= 1222   17.9s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  538  reasoning_chars= 2375   30.3s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  301  reasoning_chars= 1280   16.7s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  574  reasoning_chars= 2485   32.6s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  634  reasoning_chars= 2843   35.8s  tool_call=ok  escalated
+  B: /no_think in user turn          completion=  452  reasoning_chars= 1969   25.5s  tool_call=ok  changes_requested
+  B: /no_think in user turn          completion=  447  reasoning_chars= 1855   25.0s  tool_call=ok  escalated
+  B: /no_think in user turn          completion=  366  reasoning_chars= 1504   20.6s  tool_call=NO  
+  B: /no_think in user turn          completion=  381  reasoning_chars= 1605   21.4s  tool_call=ok  changes_requested
+
+  --- mean completion tokens over 15 samples, and tool calls that worked ---
+  baseline (thinking on)             mean=   403  median=   403  (1.00x baseline median)  tool_calls_ok=11/15
+  A: enable_thinking=false           mean=   361  median=   326  (0.81x baseline median)  tool_calls_ok=9/15
+  B: /no_think in user turn          mean=   467  median=   452  (1.12x baseline median)  tool_calls_ok=14/15

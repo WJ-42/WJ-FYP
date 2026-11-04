@@ -1,0 +1,3 @@
+00fa3b9 Added unit test for append_file function using mock_open
+e3a9d9a Added unit test for append_file function using pytest and tmp_path
+58a1b12 Added unit test for append_file function using pytest and tmp_path

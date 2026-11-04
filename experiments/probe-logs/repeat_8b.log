@@ -1,0 +1,12 @@
+   0  ok     28.8s  completion=  515  reasoning_chars= 2271  finish=tool_calls
+   1  EMPTY  15.1s  completion=  325  reasoning_chars= 1316  finish=stop
+   2  ok     23.8s  completion=  502  reasoning_chars= 2092  finish=tool_calls
+   3  ok     26.5s  completion=  559  reasoning_chars= 2587  finish=tool_calls
+   4  ok     16.0s  completion=  339  reasoning_chars= 1403  finish=tool_calls
+   5  ok     19.5s  completion=  412  reasoning_chars= 1827  finish=tool_calls
+   6  ok     13.8s  completion=  296  reasoning_chars= 1179  finish=tool_calls
+   7  ok     16.6s  completion=  352  reasoning_chars= 1509  finish=tool_calls
+   8  ok     29.9s  completion=  627  reasoning_chars= 2793  finish=tool_calls
+   9  ok     18.5s  completion=  394  reasoning_chars= 1696  finish=tool_calls
+
+  9/10 produced a tool call

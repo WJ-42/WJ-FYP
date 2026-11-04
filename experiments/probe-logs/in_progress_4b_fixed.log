@@ -1,0 +1,23 @@
+  model   qwen3:4b
+  base    http://10.126.129.12:11434/v1
+  ticket  LOC-1
+
+  --- finished in 637s ---
+
+  trigger       'code_submission'
+  tokens        prompt=14,934 completion=46,676
+  narrative     '[submitted without committing] Fixed expiry.py to raise clear ValueError for malformed expiry headers and added a test case for invalid formats.'
+
+  tool calls    4
+    - read_file({'path': 'expiry.py'})
+    - write_file({'content': 'def parse_expiry(header):\n    """Return the integer seconds from a Cache-Co
+    - write_file({'path': 'tests/test_expiry.py', 'content': 'import pytest\nfrom expiry import parse_expi
+    - run_tests({})
+
+  resamples     0
+
+  git_commit attempted  False
+  flagged unverified    True
+  rejected tool calls   0
+
+  gate worked: declaration accepted under protest and marked

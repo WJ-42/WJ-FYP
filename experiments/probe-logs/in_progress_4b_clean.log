@@ -1,0 +1,52 @@
+  model   qwen3:4b
+  base    http://10.126.129.12:11434/v1
+  ticket  LOC-1
+
+Traceback (most recent call last):
+  File "/home/waleed42/Projects/WJ-FYP/src/wjfyp/orchestrator/openai_agent.py", line 621, in _invoke_in_progress
+    response = self._create(
+        model=self._role_config.model,
+    ...<3 lines>...
+        tool_choice="auto",
+    )
+  File "/home/waleed42/Projects/WJ-FYP/src/wjfyp/orchestrator/openai_agent.py", line 423, in _create
+    response = self._client.chat.completions.create(**kwargs)
+  File "/home/waleed42/Projects/WJ-FYP/.venv/lib/python3.14/site-packages/openai/_utils/_utils.py", line 298, in wrapper
+    return func(*args, **kwargs)
+  File "/home/waleed42/Projects/WJ-FYP/.venv/lib/python3.14/site-packages/openai/resources/chat/completions/completions.py", line 1611, in create
+    return self._post(
+           ~~~~~~~~~~^
+        "/chat/completions",
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<53 lines>...
+        stream_cls=Stream[ChatCompletionChunk],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/waleed42/Projects/WJ-FYP/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1474, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/waleed42/Projects/WJ-FYP/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1248, in request
+    raise self._make_status_error_from_response(err.response) from None
+openai.BadRequestError: Error code: 400 - invalid message content type: <nil>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/claude-1000/-home-waleed42/bc950c4a-424b-48e0-99f6-589ce37e029d/scratchpad/ollama_in_progress.py", line 168, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/tmp/claude-1000/-home-waleed42/bc950c4a-424b-48e0-99f6-589ce37e029d/scratchpad/ollama_in_progress.py", line 108, in main
+    response = agent.invoke(
+        AgentContext(
+    ...<5 lines>...
+        )
+    )
+  File "/home/waleed42/Projects/WJ-FYP/src/wjfyp/orchestrator/openai_agent.py", line 437, in invoke
+    return self._invoke_in_progress(context, triggers)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/home/waleed42/Projects/WJ-FYP/src/wjfyp/orchestrator/openai_agent.py", line 665, in _invoke_in_progress
+    raise RuntimeError(
+    ...<4 lines>...
+    ) from exc
+RuntimeError: qwen3:4b had 4 consecutive requests rejected by http://10.126.129.12:11434/v1/; last reason: invalid message content type: <nil>. The endpoint is refusing rather than the model erring - check the server is up and not swapping models mid-run.
