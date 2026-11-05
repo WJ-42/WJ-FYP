@@ -159,26 +159,44 @@ MAX_CONSECUTIVE_TIMEOUTS = 3
 # The prompt budget for ONE In Progress request, in tokens, covering the
 # transcript and the tool schemas together.
 #
-# This exists because of a measured failure rather than a precaution. On
-# 04/11/2026, with the grader finally giving real pass/fail feedback,
-# run 1 of the task-2 batch spent 45 minutes on a single turn against a
-# 16,384-token server window with a prompt of 28,076 tokens. Ollama
-# front-truncated it, so the model lost its own earlier attempts and
-# oscillated between two assertions it had already seen fail:
+# HONEST PROVENANCE, corrected 2026-11-04. This was built in response to
+# a diagnosis that turned out to be WRONG, and the comment that stood
+# here asserted that wrong diagnosis as established fact.
+#
+# The claim was that on 04/11/2026 run 1 of the task-2 batch sent a
+# 28,076-token prompt into a 16,384-token window, that Ollama
+# front-truncated it, and that the model therefore lost its own earlier
+# attempts and oscillated between two assertions it had already watched
+# fail:
 #
 #     "original contentappended content"       -> fails, there is a \n
 #     "original content\nappended content"     -> fails, trailing \n too
 #
-# It never reached the correct third form, because by the time it came
-# back round the record of the first was gone. Five earlier turns in the
-# same run, at 4,000 to 5,700 prompt tokens, each finished in 2 to 6
-# minutes. The difference was entirely the window.
+# The oscillation was real. The truncation was not.
 #
-# Trimming in this module rather than raising the server's window is the
-# deliberate choice. 32,768 tokens of KV cache would cost roughly 1.2
-# GiB more than the 16,384 now in use, on a 6 GB card already holding
-# 4 GB of weights, so it would spill into host RAM and run slower still.
-# A transcript that fits costs nothing.
+# `token_cost.prompt` in the event log is the SUM of every iteration of
+# a turn (see `total_prompt +=` inside the loop below), not the size of
+# one request. The alarming 28,076 was twelve iterations averaging about
+# 2,340 tokens each, and no single prompt came close to the window.
+# Confirmed independently: a later run recorded 21,514 by the same
+# measure with ZERO trims, and a trim fires on any single request over
+# this budget.
+#
+# So the model cycled between two assertions it had already seen fail
+# WITH the full transcript in front of it. That is a qwen3:8b capability
+# result, and a more interesting one than an instrument fault.
+#
+# The trim is kept regardless, as a safety net rather than as a fix. A
+# twelve-iteration turn does approach 12,000 estimated tokens, so the
+# ceiling it guards is real. It has never fired in any run to date.
+#
+# Trimming here rather than raising the server's window is still the
+# right call. 32,768 tokens of KV cache would cost roughly 1.2 GiB more
+# than the 16,384 now in use, on a 6 GB card already holding 4 GB of
+# weights, so it would spill into host RAM and run slower still.
+#
+# Lesson worth keeping: check whether a logged metric is a per-request
+# value or a per-turn SUM before diagnosing anything from its size.
 #
 # 11,000 leaves room under a 16,384 window for MAX_OUTPUT_TOKENS of
 # completion plus headroom for the tokenizer estimate being wrong in the
@@ -869,19 +887,21 @@ class OpenAIAgent:
         in and the reported prompt barely moves, the front went out as
         the back went in.
 
-        This is now the BACKSTOP rather than the mechanism, and it is
-        kept because it is not sufficient on its own. It did not fire
-        during the 04/11/2026 run described above CONTEXT_BUDGET_TOKENS,
-        where a 28,076-token prompt was truncated to 16,384: Ollama
-        reports the PRE-truncation count, so the number kept climbing
-        with the transcript while the model attended to only the last
-        16,384 tokens of it. Nothing in the usage numbers distinguished
-        that from a healthy turn. _trim_transcript keeps the prompt
-        under a declared budget instead, and this still catches the case
-        where the declared budget is wrong - a trim that fires on an
+        This is the BACKSTOP rather than the mechanism, and it has
+        never fired. The 04/11/2026 run it was written for turned out
+        not to involve truncation at all, see the correction above
+        CONTEXT_BUDGET_TOKENS: the alarming prompt size was a per-turn
+        sum of twelve iterations, not one request. Nothing has yet been
+        observed truncating here.
+
+        It is kept anyway, for two reasons. The failure it describes is
+        real on a mis-sized server even though this setup has not
+        produced it, and it costs nothing, reading numbers the loop
+        already has. _trim_transcript keeps the prompt under a declared
+        budget, and this still catches the case where that declared
+        budget is wrong. The two do not fight: a trim that fires on an
         iteration shrinks the transcript, which makes `appended_chars`
-        negative and takes the early return below, so the two mechanisms
-        do not fight.
+        negative and takes the early return below.
 
         The threshold is deliberately slack. English runs about 4 to 5
         characters per token, so dividing by 8 is roughly half the
