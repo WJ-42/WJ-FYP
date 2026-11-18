@@ -161,30 +161,59 @@ def run_structure_comparison(
     # is the one choke point that actually prevents this - found by hitting
     # it for real on the first live run.
     work_dir = Path(work_dir).resolve()
-    results: dict[str, ConditionResult] = {}
-
-    for spec in (condition_a, condition_b):
-        repo_dir = work_dir / spec.label
-        _clone_repo(template_repo_path, repo_dir)
-        workspace = GitWorkspace(repo_dir)
-        event_log = EventLog(work_dir / spec.label / "eventlog.db")
-        try:
-            agents = build_pool(spec.roles_path, event_log)
-            run_result = run_eval_task(
-                task,
-                agents,
-                build_factory(workspace),
-                workspace,
-                event_log,
-                settings=settings,
-                hidden_tests=hidden_tests,
-            )
-            rubric = None
-            if judge is not None:
-                diff_text = workspace.diff_against_base(f"ticket/{task.task_id}")
-                rubric = judge.score(task, diff_text)
-            results[spec.label] = ConditionResult(label=spec.label, run=run_result, rubric=rubric)
-        finally:
-            event_log.close()
-
+    results = {
+        spec.label: run_condition(
+            task, spec, template_repo_path, work_dir, build_pool,
+            settings=settings, judge=judge, hidden_tests=hidden_tests,
+            sandbox_factory_builder=build_factory,
+        )
+        for spec in (condition_a, condition_b)
+    }
     return compare_structures(results[condition_a.label], results[condition_b.label])
+
+
+def run_condition(
+    task: EvalTask,
+    spec: ConditionSpec,
+    template_repo_path: Path,
+    work_dir: Path,
+    agent_pool_builder: Callable[[Path, EventLog], dict],
+    settings: Settings | None = None,
+    judge: RubricJudge | None = None,
+    hidden_tests: HiddenTestLookup | None = None,
+    sandbox_factory_builder: Callable[[GitWorkspace], SandboxFactory] | None = None,
+) -> ConditionResult:
+    """One condition of a comparison, run on its own: clone the template
+    into work_dir/<label>, run the task there with its own EventLog, and
+    optionally judge the diff. run_structure_comparison calls this once
+    per arm, and the single-agent baseline (the CLI's `solo`) calls it
+    once on its own, so a solo run goes through exactly the same clone,
+    sandbox, scoring and judge path as each team arm does.
+    """
+    build_factory = sandbox_factory_builder or _default_sandbox_factory_builder
+    # Resolved here as well as in run_structure_comparison, because this
+    # is now also an entry point in its own right. See the Docker bind
+    # mount note above for why a relative path must never get through.
+    work_dir = Path(work_dir).resolve()
+    repo_dir = work_dir / spec.label
+    _clone_repo(template_repo_path, repo_dir)
+    workspace = GitWorkspace(repo_dir)
+    event_log = EventLog(work_dir / spec.label / "eventlog.db")
+    try:
+        agents = agent_pool_builder(spec.roles_path, event_log)
+        run_result = run_eval_task(
+            task,
+            agents,
+            build_factory(workspace),
+            workspace,
+            event_log,
+            settings=settings,
+            hidden_tests=hidden_tests,
+        )
+        rubric = None
+        if judge is not None:
+            diff_text = workspace.diff_against_base(f"ticket/{task.task_id}")
+            rubric = judge.score(task, diff_text)
+        return ConditionResult(label=spec.label, run=run_result, rubric=rubric)
+    finally:
+        event_log.close()

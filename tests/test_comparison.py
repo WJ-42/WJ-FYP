@@ -10,6 +10,7 @@ from wjfyp.eval.comparison import (
     ConditionResult,
     ConditionSpec,
     compare_structures,
+    run_condition,
     run_structure_comparison,
 )
 from wjfyp.eval.mast import MastFailureMode
@@ -253,6 +254,24 @@ class RunStructureComparisonIntegrationTest(unittest.TestCase):
         self.assertFalse((repo_b / "flat.marker").exists())
         self.assertTrue((self.work_dir / "hierarchical" / "eventlog.db").exists())
         self.assertTrue((self.work_dir / "flat" / "eventlog.db").exists())
+
+    def test_run_condition_runs_one_arm_on_its_own(self) -> None:
+        """The single-agent baseline goes through run_condition alone, so
+        it has to clone, run and score in work_dir/<label> exactly as
+        one arm of a comparison does."""
+        task = EvalTask(task_id="TCK-CMP", title="Demo comparison task", prompt="Do the thing.", checkpoints=[])
+
+        result = run_condition(
+            task, ConditionSpec(label="hierarchical", roles_path=Path("hierarchical")),
+            self.template_repo, self.work_dir, self._agent_pool_builder,
+            sandbox_factory_builder=self._sandbox_factory_builder,
+        )
+
+        self.assertEqual(result.label, "hierarchical")
+        self.assertEqual(result.run.ticket_status, "done")
+        self.assertTrue((self.work_dir / "hierarchical" / "hierarchical.marker").exists())
+        self.assertTrue((self.work_dir / "hierarchical" / "eventlog.db").exists())
+        self.assertFalse((self.work_dir / "flat").exists())
 
     def test_a_relative_work_dir_is_resolved_to_absolute(self) -> None:
         """Regression test: the first real live run (see cs3ip-fyp-overview

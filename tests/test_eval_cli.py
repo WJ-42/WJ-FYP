@@ -4,7 +4,8 @@ import io
 import unittest
 from pathlib import Path
 
-from wjfyp.eval.cli import list_tasks, main, run_compare, show_task
+from wjfyp.eval.baseline import SOLO_PERSONALITY, SoloAgent
+from wjfyp.eval.cli import list_tasks, main, run_compare, run_solo, show_task
 from wjfyp.eval.comparison import ConditionResult, ConditionSpec, StructureComparison
 from wjfyp.eval.mast import MastFailureMode
 from wjfyp.eval.rubric import AxisScore, RubricScore
@@ -260,6 +261,82 @@ class MainCompareTest(unittest.TestCase):
         # this is safe to run through main() for real - it never touches
         # Docker, a git clone, or the API.
         self.assertEqual(main(["compare", "no-such-task", "--repo", "/nonexistent"]), 1)
+
+
+ROLES_GROQ = Path(__file__).resolve().parents[1] / "config" / "roles_groq.yaml"
+
+
+class RunSoloTest(unittest.TestCase):
+    """Same injected-runner pattern as RunCompareTest, so no Docker,
+    clone or model call is involved."""
+
+    def _canned(self) -> ConditionResult:
+        return _canned_comparison().condition_b.model_copy(update={"label": "solo"})
+
+    def test_prints_the_single_condition(self) -> None:
+        out = io.StringIO()
+        code = run_solo(
+            _sample_tasks(), "demo-task", ConditionSpec(label="solo", roles_path=ROLES_GROQ),
+            Path("/template"), Path("/work"), out=out, runner=lambda *a, **k: self._canned(),
+        )
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("Single-agent baseline for demo-task", text)
+        self.assertIn("solo:", text)
+        self.assertIn("status: halted", text)
+        self.assertIn("score: 0/2 (0.00)", text)
+
+    def test_open_backend_builds_one_agent_on_the_requested_model(self) -> None:
+        """The pool the runner is handed must be the solo pool, built on
+        the same endpoint and model override a team arm would get."""
+        captured = {}
+
+        def runner(task, spec, template, work_dir, pool_builder, **kwargs):
+            captured["pool"] = pool_builder(spec.roles_path, None)
+            captured["kwargs"] = kwargs
+            return self._canned()
+
+        code = run_solo(
+            _sample_tasks(), "demo-task", ConditionSpec(label="solo", roles_path=ROLES_GROQ),
+            Path("/template"), Path("/work"),
+            backend="open", base_url="http://127.0.0.1:9/v1", model="qwen3:8b",
+            out=io.StringIO(), runner=runner,
+        )
+
+        self.assertEqual(code, 0)
+        pool = captured["pool"]
+        self.assertEqual(set(pool), {"cto", "product", "engineering"})
+        self.assertEqual(len({id(a) for agents in pool.values() for a in agents}), 1)
+        solo = pool["engineering"][0]
+        self.assertIsInstance(solo, SoloAgent)
+        self.assertEqual(solo._inner._role_config.model, "qwen3:8b")
+        self.assertEqual(solo._role_configs["cto"].personality, SOLO_PERSONALITY)
+        self.assertIsNone(captured["kwargs"]["judge"])
+
+    def test_self_hosted_spend_is_reported_as_zero(self) -> None:
+        out = io.StringIO()
+        run_solo(
+            _sample_tasks(), "demo-task", ConditionSpec(label="solo", roles_path=ROLES_GROQ),
+            Path("/template"), Path("/work"),
+            backend="open", base_url="http://127.0.0.1:9/v1", model="qwen3:8b", budget_cap=5.0,
+            out=out, runner=lambda *a, **k: self._canned(),
+        )
+        self.assertIn("spend this run: $0.0000 (self-hosted endpoint)", out.getvalue())
+
+    def test_budget_exceeded_aborts_with_exit_code_two(self) -> None:
+        def runner(*args, **kwargs):
+            raise BudgetExceededError("spend guard tripped")
+
+        out = io.StringIO()
+        code = run_solo(
+            _sample_tasks(), "demo-task", ConditionSpec(label="solo", roles_path=ROLES_GROQ),
+            Path("/template"), Path("/work"), budget_cap=5.0, out=out, runner=runner,
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("budget cap hit, aborting", out.getvalue())
+
+    def test_unknown_task_exits_one_through_main(self) -> None:
+        self.assertEqual(main(["solo", "no-such-task", "--repo", "/nonexistent"]), 1)
 
 
 class RealTaskRegistryTest(unittest.TestCase):

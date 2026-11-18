@@ -1,4 +1,8 @@
-"""Eval CLI: `python -m wjfyp.eval.cli list|show|compare`.
+"""Eval CLI: `python -m wjfyp.eval.cli list|show|compare|solo`.
+
+`solo` runs one task through the single-agent baseline: one agent
+playing every role, on the same tickets, sandbox and scoring as a team
+arm (see eval/baseline.py's build_solo_pool).
 
 `compare` runs one task through two team configs (e.g. config/roles.yaml
 vs. config/roles_flat.yaml - the hierarchical-vs-flat comparison, see
@@ -18,11 +22,19 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
-from wjfyp.eval.comparison import ConditionSpec, StructureComparison, run_structure_comparison
+from wjfyp.eval.baseline import build_solo_pool
+from wjfyp.eval.comparison import (
+    ConditionResult,
+    ConditionSpec,
+    StructureComparison,
+    run_condition,
+    run_structure_comparison,
+)
 from wjfyp.eval.rubric import LLMRubricJudge
 from wjfyp.eval.task import EvalTask
 from wjfyp.eval.tasks import TASKS
 from wjfyp.orchestrator.budget import BudgetExceededError, SpendGuard
+from wjfyp.orchestrator.claude_agent import build_agent_pool as build_claude_pool
 from wjfyp.orchestrator.openai_agent import DEFAULT_BASE_URL
 from wjfyp.orchestrator.openai_agent import build_agent_pool as build_open_model_pool
 
@@ -55,20 +67,24 @@ def show_task(tasks: dict[str, EvalTask], task_id: str, out: TextIO = sys.stdout
     return True
 
 
+def print_condition(condition: ConditionResult, out: TextIO = sys.stdout) -> None:
+    run = condition.run
+    print(f"{condition.label}:", file=out)
+    print(f"  status: {run.ticket_status}", file=out)
+    print(f"  score: {run.score.points_earned}/{run.score.points_total} ({run.score.score:.2f})", file=out)
+    if run.mast_tags:
+        print(f"  MAST tags: {', '.join(tag.value for tag in run.mast_tags)}", file=out)
+    if condition.rubric is not None:
+        for axis_score in condition.rubric.axis_scores:
+            print(f"  rubric[{axis_score.axis_id}]: {axis_score.score} - {axis_score.justification}", file=out)
+        print(f"  rubric overall: {condition.rubric.overall:.2f}", file=out)
+
+
 def print_comparison(comparison: StructureComparison, out: TextIO = sys.stdout) -> None:
     print(f"Comparison for {comparison.task_id}", file=out)
     for condition in (comparison.condition_a, comparison.condition_b):
-        run = condition.run
         print(file=out)
-        print(f"{condition.label}:", file=out)
-        print(f"  status: {run.ticket_status}", file=out)
-        print(f"  score: {run.score.points_earned}/{run.score.points_total} ({run.score.score:.2f})", file=out)
-        if run.mast_tags:
-            print(f"  MAST tags: {', '.join(tag.value for tag in run.mast_tags)}", file=out)
-        if condition.rubric is not None:
-            for axis_score in condition.rubric.axis_scores:
-                print(f"  rubric[{axis_score.axis_id}]: {axis_score.score} - {axis_score.justification}", file=out)
-            print(f"  rubric overall: {condition.rubric.overall:.2f}", file=out)
+        print_condition(condition, out=out)
 
     print(file=out)
     better = comparison.condition_a if comparison.condition_a_better else comparison.condition_b
@@ -108,6 +124,40 @@ def _open_model_pool_builder(
     )
 
 
+def _guard_and_team_builder(
+    backend: str, base_url: str, model: str | None, budget_cap: float | None
+) -> tuple[SpendGuard | None, Callable[..., dict] | None]:
+    """The spend guard and team pool builder a run uses, shared by
+    `compare` and `solo` so the two cannot drift apart on cost
+    accounting or on how the open-model backend is wired.
+
+    The builder is None for the Claude backend, which keeps the
+    comparison runner's own default (and its existing call shape).
+    """
+    # A run served from the user's own hardware costs nothing, and the
+    # guard has to be told so: an unrecognised model id otherwise prices
+    # at the Opus rate, which both reports spend that did not happen and
+    # trips the cap partway through a long local batch. The caller knows
+    # the endpoint; the guard cannot infer it from a model name.
+    self_hosted = backend != "claude" and base_url != DEFAULT_BASE_URL
+    guard = (
+        SpendGuard(cap_usd=budget_cap, self_hosted=self_hosted)
+        if budget_cap is not None
+        else None
+    )
+    builder = _open_model_pool_builder(guard, base_url, model) if backend != "claude" else None
+    return guard, builder
+
+
+def _print_spend(guard: SpendGuard | None, out: TextIO) -> None:
+    if guard is None:
+        return
+    if guard.self_hosted:
+        print("spend this run: $0.0000 (self-hosted endpoint)", file=out)
+    else:
+        print(f"estimated spend this run: ${guard.spent_usd:.4f} (cap ${guard.cap_usd:.2f})", file=out)
+
+
 def run_compare(
     tasks: dict[str, EvalTask],
     task_id: str,
@@ -138,22 +188,12 @@ def run_compare(
         print(f"unknown task id: {task_id!r}", file=out)
         return 1
     judge = LLMRubricJudge() if use_judge else None
-    # A run served from the user's own hardware costs nothing, and the
-    # guard has to be told so: an unrecognised model id otherwise prices
-    # at the Opus rate, which both reports spend that did not happen and
-    # trips the cap partway through a long local batch. The caller knows
-    # the endpoint; the guard cannot infer it from a model name.
-    self_hosted = backend != "claude" and base_url != DEFAULT_BASE_URL
-    guard = (
-        SpendGuard(cap_usd=budget_cap, self_hosted=self_hosted)
-        if budget_cap is not None
-        else None
-    )
+    guard, builder = _guard_and_team_builder(backend, base_url, model, budget_cap)
     extra: dict[str, Any] = {}
-    if backend != "claude":
+    if builder is not None:
         # Only passed when it is actually needed, so an injected test
         # runner keeps seeing the call shape it already expects.
-        extra["agent_pool_builder"] = _open_model_pool_builder(guard, base_url, model)
+        extra["agent_pool_builder"] = builder
     try:
         comparison = runner(
             task, condition_a, condition_b, template_repo_path, work_dir,
@@ -163,35 +203,67 @@ def run_compare(
         print(f"budget cap hit, aborting: {exc}", file=out)
         return 2
     finally:
-        if guard is not None:
-            if guard.self_hosted:
-                print("spend this run: $0.0000 (self-hosted endpoint)", file=out)
-            else:
-                print(
-                    f"estimated spend this run: ${guard.spent_usd:.4f} (cap ${guard.cap_usd:.2f})",
-                    file=out,
-                )
+        _print_spend(guard, out)
     print_comparison(comparison, out=out)
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="wjfyp-eval", description="CS3IP evaluation harness CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("list", help="list every ported eval task")
-    show_parser = subparsers.add_parser("show", help="show one task's prompt and checkpoints")
-    show_parser.add_argument("task_id")
+def run_solo(
+    tasks: dict[str, EvalTask],
+    task_id: str,
+    spec: ConditionSpec,
+    template_repo_path: Path,
+    work_dir: Path,
+    use_judge: bool = False,
+    budget_cap: float | None = None,
+    backend: str = "claude",
+    base_url: str = DEFAULT_BASE_URL,
+    model: str | None = None,
+    out: TextIO = sys.stdout,
+    runner: Callable[..., ConditionResult] = run_condition,
+) -> int:
+    """The single-agent baseline: one task, one agent playing every role.
 
-    compare_parser = subparsers.add_parser(
-        "compare", help="run one task through two team configs and compare"
+    Takes the same roles file, backend, endpoint, model override and
+    budget cap as `compare`, and builds its agent with the same pool
+    builder a team arm uses (build_solo_pool), so the only thing that
+    differs from a team arm is the number of agents and the persona.
+    Exit codes match run_compare's.
+    """
+    task = tasks.get(task_id)
+    if task is None:
+        print(f"unknown task id: {task_id!r}", file=out)
+        return 1
+    judge = LLMRubricJudge() if use_judge else None
+    guard, builder = _guard_and_team_builder(backend, base_url, model, budget_cap)
+    # The Claude default, with the guard wired in exactly as
+    # run_structure_comparison wires it for a team arm.
+    team_builder = builder or (
+        lambda roles_path, event_log: build_claude_pool(roles_path, event_log, spend_guard=guard)
     )
-    compare_parser.add_argument("task_id")
-    compare_parser.add_argument("--repo", type=Path, required=True, help="template repo (outside this tree)")
-    compare_parser.add_argument("--work-dir", type=Path, default=Path("data/comparisons"))
-    compare_parser.add_argument("--roles-a", type=Path, default=Path("config/roles.yaml"))
-    compare_parser.add_argument("--label-a", default="hierarchical")
-    compare_parser.add_argument("--roles-b", type=Path, default=Path("config/roles_flat.yaml"))
-    compare_parser.add_argument("--label-b", default="flat")
+    try:
+        result = runner(
+            task, spec, template_repo_path, work_dir,
+            lambda roles_path, event_log: build_solo_pool(roles_path, event_log, team_builder),
+            judge=judge,
+        )
+    except BudgetExceededError as exc:
+        print(f"budget cap hit, aborting: {exc}", file=out)
+        return 2
+    finally:
+        _print_spend(guard, out)
+    print(f"Single-agent baseline for {task.task_id}", file=out)
+    print(file=out)
+    print_condition(result, out=out)
+    return 0
+
+
+def _add_run_options(run_parser: argparse.ArgumentParser) -> None:
+    """Options every subcommand that runs agents takes, defined once so
+    `compare` and `solo` cannot drift apart."""
+    run_parser.add_argument("task_id")
+    run_parser.add_argument("--repo", type=Path, required=True, help="template repo (outside this tree)")
+    run_parser.add_argument("--work-dir", type=Path, default=Path("data/comparisons"))
     # Opt IN, not opt out. The rubric judge is the only part of a run
     # that still calls a paid API, and this project's constraint is that
     # a run costs nothing unless it is asked to. A default-on paid call
@@ -209,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     #
     # The deterministic checkpoint and hidden-test scoring needs no
     # model at all and is unaffected either way.
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--judge",
         action="store_true",
         help=(
@@ -220,12 +292,12 @@ def main(argv: list[str] | None = None) -> int:
             "the thing being measured does"
         ),
     )
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--no-judge",
         action="store_true",
         help="deprecated and now the default; accepted so existing commands keep working",
     )
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--base-url",
         default=DEFAULT_BASE_URL,
         help=(
@@ -235,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
             f"machine (default: {DEFAULT_BASE_URL})"
         ),
     )
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--model",
         default=None,
         help=(
@@ -247,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             "unset for an arm whose point is differing capability per tier"
         ),
     )
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--backend",
         choices=["claude", "open", "groq"],
         default="claude",
@@ -262,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             "does (default: claude)"
         ),
     )
-    compare_parser.add_argument(
+    run_parser.add_argument(
         "--budget-cap",
         type=float,
         default=5.0,
@@ -273,6 +345,44 @@ def main(argv: list[str] | None = None) -> int:
             "spending past it (default: 5.00)"
         ),
     )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="wjfyp-eval", description="CS3IP evaluation harness CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("list", help="list every ported eval task")
+    show_parser = subparsers.add_parser("show", help="show one task's prompt and checkpoints")
+    show_parser.add_argument("task_id")
+
+    compare_parser = subparsers.add_parser(
+        "compare", help="run one task through two team configs and compare"
+    )
+    compare_parser.add_argument("--roles-a", type=Path, default=Path("config/roles.yaml"))
+    compare_parser.add_argument("--label-a", default="hierarchical")
+    compare_parser.add_argument("--roles-b", type=Path, default=Path("config/roles_flat.yaml"))
+    compare_parser.add_argument("--label-b", default="flat")
+
+    solo_parser = subparsers.add_parser(
+        "solo",
+        help=(
+            "run one task through the single-agent baseline: one agent playing every "
+            "role, with the same backend, model and limits as a team arm"
+        ),
+    )
+    solo_parser.add_argument(
+        "--roles",
+        type=Path,
+        default=Path("config/roles.yaml"),
+        help=(
+            "roles file the solo agent takes its roles and its model from. Pass the "
+            "same file a team arm used, so both are built the same way. Its personas "
+            "are replaced by the solo one (default: config/roles.yaml)"
+        ),
+    )
+    solo_parser.add_argument("--label", default="solo")
+
+    for run_parser in (compare_parser, solo_parser):
+        _add_run_options(run_parser)
 
     args = parser.parse_args(argv)
 
@@ -287,6 +397,19 @@ def main(argv: list[str] | None = None) -> int:
             args.task_id,
             ConditionSpec(label=args.label_a, roles_path=args.roles_a),
             ConditionSpec(label=args.label_b, roles_path=args.roles_b),
+            args.repo,
+            args.work_dir,
+            use_judge=args.judge and not args.no_judge,
+            budget_cap=args.budget_cap,
+            backend=args.backend,
+            base_url=args.base_url,
+            model=args.model,
+        )
+    elif args.command == "solo":
+        return run_solo(
+            TASKS,
+            args.task_id,
+            ConditionSpec(label=args.label, roles_path=args.roles),
             args.repo,
             args.work_dir,
             use_judge=args.judge and not args.no_judge,
