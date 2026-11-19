@@ -9,6 +9,8 @@ the upstream `evaluator.py` files of these tasks.
 - `sde_fix_factual_mistake.py` from `sde-fix-factual-mistake`
 - `sde_write_a_unit_test.py` from `sde-write-a-unit-test-for-append_file-function`
 - `sde_write_a_unit_test_strict.py`, a corrected rubric for the same task, built on the port above
+- `sde_migrate_package_manager.py` from `sde-migrate-package-manager`, including its task prompt
+- `sde_migrate_package_manager_strict.py`, a corrected rubric for the same task, built on the port above
 
 TheAgentCompany is distributed under the MIT License, reproduced below.
 
@@ -16,6 +18,41 @@ TheAgentCompany is distributed under the MIT License, reproduced below.
 MIT License
 
 Copyright (c) 2024 TheAgentCompany
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## sotopia
+
+The `sde-migrate-package-manager` tasks are graded against sotopia
+(https://github.com/sotopia-lab/sotopia) at commit 71d6199. The repository itself is kept
+outside this project. `sde_migrate_package_manager_strict.py` and
+`tests/test_sde_migrate_package_manager.py` reproduce sotopia's dependency names, extras and
+short excerpts of its `pyproject.toml`, workflows and documentation, as found at 71d6199 and at
+ed626ec.
+
+sotopia is distributed under the MIT License, reproduced below.
+
+```text
+MIT License
+
+Copyright (c) 2023 Hao Zhu
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

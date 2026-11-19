@@ -23,3 +23,5 @@ def register(task: EvalTask) -> EvalTask:
 from wjfyp.eval.tasks import sde_fix_factual_mistake  # noqa: E402,F401
 from wjfyp.eval.tasks import sde_write_a_unit_test  # noqa: E402,F401
 from wjfyp.eval.tasks import sde_write_a_unit_test_strict  # noqa: E402,F401
+from wjfyp.eval.tasks import sde_migrate_package_manager  # noqa: E402,F401
+from wjfyp.eval.tasks import sde_migrate_package_manager_strict  # noqa: E402,F401

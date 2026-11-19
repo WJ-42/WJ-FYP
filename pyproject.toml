@@ -6,6 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2",
     "pyyaml>=6",
+    # Parses PEP 508 strings for the sde-migrate-package-manager-strict
+    # grader. Already present through pytest, declared here because the
+    # grader runs in the harness process.
+    "packaging>=22",
 ]
 
 [project.optional-dependencies]
