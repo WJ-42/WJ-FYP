@@ -160,8 +160,9 @@ class OrchestratorLoopTest(unittest.TestCase):
             not result.advanced and result.ticket.status == TicketStatus.DONE
         )
         self.assertEqual(self.event_log.get_ticket(ticket.id).status, TicketStatus.DONE)
-        # cto x2, product x1, engineering x2, sandbox tool_result x1.
-        self.assertEqual(len(self.event_log.get_channel_history(channel.id, 100)), 6)
+        # cto x2, product x1, engineering x2, sandbox tool_result x1, and
+        # the system note that the scripted Product wrote no criteria.
+        self.assertEqual(len(self.event_log.get_channel_history(channel.id, 100)), 7)
 
     def test_hidden_tests_lookup_is_used_at_awaiting_test_instead_of_run_tests(self) -> None:
         ticket = _make_ticket()
@@ -546,6 +547,9 @@ class OrchestratorLoopTest(unittest.TestCase):
                 # conflict during merge(), not FYP-31's empty-diff guard -
                 # a real diff must exist to reach merge() at all.
                 return "+ real change"
+
+            def diff_stat_against_base(self, _branch_name: str) -> str:
+                return " feature.txt | 1 +"
 
             def merge(self, _ticket: Ticket) -> str:
                 raise RuntimeError("simulated merge conflict")

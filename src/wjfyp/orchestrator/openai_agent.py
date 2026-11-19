@@ -69,6 +69,8 @@ from wjfyp.orchestrator.claude_agent import (
     MAX_SANDBOX_ITERATIONS,
     _base_system_prompt,
     _execute_sandbox_tool,
+    _criteria_for,
+    _criteria_from_args,
     _tool_schema,
     _truncate,
     _user_turn,
@@ -686,7 +688,7 @@ class OpenAIAgent:
         prompt_tokens = 0
         completion_tokens = 0
         reason = "no attempts were made"
-        schema = _tool_schema(triggers)
+        schema = _tool_schema(triggers, context.ticket.status)
 
         for attempt in range(1 + MAX_EMPTY_RESAMPLES):
             response = self._create(
@@ -712,6 +714,11 @@ class OpenAIAgent:
                 )
             else:
                 args = _parse_arguments(calls[0])
+                if args is not None and isinstance(args.get("acceptance_criteria"), str):
+                    # A hint-only endpoint can send the criteria as one
+                    # string instead of an array. That is still usable,
+                    # so it is converted here rather than resampled.
+                    args = {**args, "acceptance_criteria": _criteria_from_args(args)}
                 if args is None:
                     reason = (
                         f"returned unparsable arguments: "
@@ -743,6 +750,7 @@ class OpenAIAgent:
                             context, args, prompt_tokens, completion_tokens
                         ),
                         trigger=args["trigger"],
+                        acceptance_criteria=_criteria_for(context, args),
                     )
 
             self._log_resample(context, attempt, reason)

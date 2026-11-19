@@ -30,6 +30,11 @@ class AgentContext(BaseModel):
     instance_id: str
     handoff: HandoffNote | None = None
     sandbox: SandboxController | None = None
+    # Set only at REVIEW, by loop.step(), when a real GitWorkspace exists.
+    # The rendered stat and truncated diff of the ticket branch against
+    # its base (see orchestrator/review_evidence.py), so the reviewer
+    # judges the code and not only the engineer's account of it.
+    review_evidence: str | None = None
 
 
 class AgentResponse(BaseModel):
@@ -43,6 +48,10 @@ class AgentResponse(BaseModel):
 
     message: Message
     trigger: str
+    # Filled only by Product at BACKLOG, from declare_outcome's
+    # acceptance_criteria field. loop.step() writes it onto
+    # Ticket.acceptance_criteria. None means the agent supplied none.
+    acceptance_criteria: list[str] | None = None
 
 
 class Agent(Protocol):

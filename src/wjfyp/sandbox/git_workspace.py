@@ -67,8 +67,30 @@ class GitWorkspace:
         Returns "" if the branch was never created (e.g. a ticket that
         never reached in_progress).
         """
-        if not self._git("branch", "--list", branch_name):
+        endpoints = self._diff_endpoints(branch_name, base)
+        if endpoints is None:
             return ""
+        return self._git("diff", *endpoints)
+
+    def diff_stat_against_base(self, branch_name: str, base: str | None = None) -> str:
+        """`git diff --stat` over the same range diff_against_base() uses,
+        so the file list and the diff always describe one change. Added
+        for the review evidence (orchestrator/review_evidence.py), where
+        the stat is the one place a lock file or other omitted file still
+        shows up. Returns "" if the branch was never created.
+        """
+        endpoints = self._diff_endpoints(branch_name, base)
+        if endpoints is None:
+            return ""
+        return self._git("diff", "--stat=100", *endpoints)
+
+    def _diff_endpoints(self, branch_name: str, base: str | None) -> tuple[str, str] | None:
+        """The (from, to) commits that bound what `branch_name` changed.
+        See diff_against_base() for why a merged branch needs its merge
+        commit found first. None if the branch does not exist.
+        """
+        if not self._git("branch", "--list", branch_name):
+            return None
         base = base or self.default_base
         branch_tip = self._git("rev-parse", branch_name)
         merge_commits = self._git("log", base, "--merges", "--format=%H %P").splitlines()
@@ -77,9 +99,9 @@ class GitWorkspace:
         )
         if merge_commit:
             first_parent = self._git("rev-parse", f"{merge_commit}^1")
-            return self._git("diff", first_parent, merge_commit)
+            return first_parent, merge_commit
         merge_base = self._git("merge-base", base, branch_name)
-        return self._git("diff", merge_base, branch_name)
+        return merge_base, branch_name
 
     def clone_url(self) -> str:
         """A file:// URL usable as a git remote from inside a container

@@ -113,9 +113,26 @@ _ROLE_RESPONSIBILITIES: dict[tuple[str, TicketStatus | None], str] = {
     ),
     ("product", None): (
         "You are Product at a small software company. You act at Backlog: take the "
-        "CTO's subsystem-level scope and decompose it into one or more concrete "
-        "tickets, each with clear acceptance criteria an engineer can implement "
-        "against."
+        "CTO's subsystem-level scope and turn it into a concrete spec an engineer can "
+        "implement against. Put the spec's acceptance criteria in the "
+        "`acceptance_criteria` field of your outcome call, as a list of 2 to 8 short "
+        "statements. Together they must cover the whole task as the ticket describes "
+        "it, not just its first part. Make each one checkable by reading the code "
+        "change, for example naming the file that must change and what it must or "
+        "must not contain. The engineer builds against these criteria and the "
+        "reviewer approves only if every one of them is visibly met."
+    ),
+    ("cto", TicketStatus.REVIEW): (
+        "You are the CTO of a small software company, reviewing a submitted "
+        "implementation. Your approval IS the merge to main. Below the ticket you "
+        "have its acceptance criteria, the engineer's handoff and the actual code "
+        "change, as a git diff --stat and the unified diff of the ticket branch "
+        "against its base. The handoff is the engineer's claim. The diff is the evidence. "
+        "Check every acceptance criterion against the diff. Choose approved only if "
+        "every criterion is visibly met by the diff. Otherwise choose "
+        "changes_requested, and in handoff_notes_for_next name each unmet criterion "
+        "and what the diff is missing for it. If the diff was truncated, treat a "
+        "criterion you could not see met as unmet."
     ),
     ("engineering", TicketStatus.SPECD): (
         "You are an Engineer at a small software company. Right now you are "
@@ -164,7 +181,67 @@ def _base_system_prompt(role_config: RoleConfig, status: TicketStatus, valid: li
     return prompt
 
 
-def _tool_schema(triggers: list[str]) -> dict[str, Any]:
+# The most criteria kept from one Backlog turn. Product is asked for 2
+# to 8, and anything past 8 is dropped so a runaway list cannot crowd
+# the diff out of the review turn (see review_evidence.DIFF_BUDGET_CHARS).
+MAX_ACCEPTANCE_CRITERIA = 8
+
+_ACCEPTANCE_CRITERIA_PROPERTY: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "2 to 8 short, checkable acceptance criteria that together cover the whole "
+        "task. The reviewer approves only if the code change visibly meets every one."
+    ),
+}
+
+
+def _tool_schema(triggers: list[str], status: TicketStatus | None = None) -> dict[str, Any]:
+    """The declare_outcome schema. At BACKLOG it also carries
+    `acceptance_criteria`, the one place they are written. It is left out
+    of `required` so a model that omits it still produces a usable call,
+    and loop.step() then falls back to the task text and logs that.
+    """
+    schema = _base_tool_schema(triggers)
+    if status == TicketStatus.BACKLOG:
+        schema["input_schema"]["properties"]["acceptance_criteria"] = dict(
+            _ACCEPTANCE_CRITERIA_PROPERTY
+        )
+    return schema
+
+
+def _criteria_from_args(args: dict[str, Any]) -> list[str]:
+    """Cleans the acceptance_criteria a model declared. Accepts a list or,
+    from a model that ignored the array type, one string with a criterion
+    per line. Blank and repeated entries are dropped and the list is cut
+    to MAX_ACCEPTANCE_CRITERIA.
+    """
+    raw = args.get("acceptance_criteria")
+    if isinstance(raw, str):
+        raw = raw.splitlines()
+    if not isinstance(raw, list):
+        return []
+    cleaned: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        text = item.strip().lstrip("-*").strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned[:MAX_ACCEPTANCE_CRITERIA]
+
+
+def _criteria_for(context: AgentContext, args: dict[str, Any]) -> list[str] | None:
+    """The criteria to hand back on AgentResponse. Only a BACKLOG turn
+    writes them, so every other stage returns None and leaves the
+    ticket's existing list alone.
+    """
+    if context.ticket.status != TicketStatus.BACKLOG:
+        return None
+    return _criteria_from_args(args)
+
+
+def _base_tool_schema(triggers: list[str]) -> dict[str, Any]:
     return {
         "name": _TOOL_NAME,
         "description": (
@@ -537,9 +614,16 @@ def _execute_sandbox_tool(sandbox: SandboxController, name: str, args: dict) -> 
 def _user_turn(context: AgentContext) -> str:
     ticket = context.ticket
     lines = [f"Ticket {ticket.id}: {ticket.title}", f"Description: {ticket.description}"]
-    if ticket.acceptance_criteria:
+    if ticket.acceptance_criteria == [ticket.description]:
+        # loop.step()'s fallback when Product wrote none. Printing the
+        # description a second time would only spend tokens.
+        lines.append(
+            "Acceptance criteria: none were written, so the whole description above "
+            "is the one criterion."
+        )
+    elif ticket.acceptance_criteria:
         lines.append("Acceptance criteria:")
-        lines.extend(f"- {c}" for c in ticket.acceptance_criteria)
+        lines.extend(f"{i}. {c}" for i, c in enumerate(ticket.acceptance_criteria, start=1))
     if context.handoff is not None:
         lines += [
             "",
@@ -548,6 +632,8 @@ def _user_turn(context: AgentContext) -> str:
             f"Remaining: {context.handoff.remaining}",
             f"Notes: {context.handoff.notes_for_next}",
         ]
+    if context.review_evidence is not None:
+        lines += ["", context.review_evidence]
     return "\n".join(lines)
 
 
@@ -709,7 +795,7 @@ class ClaudeAgent:
             model=self._role_config.model,
             max_tokens=16000,
             system=_cached_system(_base_system_prompt(self._role_config, context.ticket.status, triggers)),
-            tools=_cached_tools([_tool_schema(triggers)]),
+            tools=_cached_tools([_tool_schema(triggers, context.ticket.status)]),
             tool_choice={"type": "tool", "name": _TOOL_NAME},
             messages=[{"role": "user", "content": _user_turn(context)}],
         )
@@ -717,6 +803,7 @@ class ClaudeAgent:
         return AgentResponse(
             message=self._build_message(context, args, response.usage.input_tokens, response.usage.output_tokens),
             trigger=args["trigger"],
+            acceptance_criteria=_criteria_for(context, args),
         )
 
     def _invoke_in_progress(self, context: AgentContext, triggers: list[str]) -> AgentResponse:

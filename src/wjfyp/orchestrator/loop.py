@@ -19,6 +19,7 @@ from wjfyp.orchestrator.fsm import (
     next_state,
     requires_human_approval,
 )
+from wjfyp.orchestrator.review_evidence import build_review_evidence
 from wjfyp.sandbox.controller import SandboxController
 from wjfyp.sandbox.git_workspace import GitWorkspace
 from wjfyp.sandbox.hidden_tests import HiddenTestSpec
@@ -137,6 +138,37 @@ def _apply_empty_diff_guard(
     if diff.strip():
         return ticket, trigger
     return ticket, EMPTY_DIFF_TRIGGER
+
+
+def _record_acceptance_criteria(
+    ticket: Ticket, criteria: list[str] | None, channel: Channel, event_log: EventLog
+) -> Ticket:
+    """Writes Product's acceptance criteria onto the ticket at BACKLOG.
+    Before 19/11/2026 nothing wrote Ticket.acceptance_criteria at all, so
+    the engineer built against prose and the reviewer had nothing to
+    check the diff against.
+
+    If Product supplied none, the task text becomes the single criterion.
+    The run carries on, and a system message in the channel records the
+    fallback so the run's log shows it happened.
+    """
+    if criteria:
+        return ticket.model_copy(update={"acceptance_criteria": list(criteria)})
+    event_log.append_message(
+        Message(
+            sender=AgentRef(role="system", instance_id="orchestrator"),
+            channel_id=channel.id,
+            type=MessageType.STATUS_UPDATE,
+            ticket_ref=ticket.id,
+            content=MessageContent(
+                text=(
+                    "Product wrote no acceptance criteria, so the ticket description "
+                    "is used as the only criterion."
+                )
+            ),
+        )
+    )
+    return ticket.model_copy(update={"acceptance_criteria": [ticket.description]})
 
 
 @dataclass
@@ -307,6 +339,13 @@ def step(
     if ticket.status == TicketStatus.IN_PROGRESS and sandbox is None:
         sandbox = sandbox_factory(ticket)
 
+    # The reviewer sees the code itself, not only the engineer's account
+    # of it. Needs a real workspace, so tests and fake runs without one
+    # get the old ticket and handoff turn unchanged.
+    review_evidence = None
+    if ticket.status == TicketStatus.REVIEW and workspace is not None and ticket.branch_name:
+        review_evidence = build_review_evidence(workspace, ticket.branch_name)
+
     context = AgentContext(
         ticket=ticket,
         channel_id=channel.id,
@@ -314,6 +353,7 @@ def step(
         instance_id=agent.instance_id,
         handoff=event_log.last_handoff(channel.id),
         sandbox=sandbox,
+        review_evidence=review_evidence,
     )
     try:
         response = agent.invoke(context)
@@ -331,6 +371,9 @@ def step(
         raise
     event_log.append_message(response.message)
     trigger = response.trigger
+
+    if ticket.status == TicketStatus.BACKLOG:
+        ticket = _record_acceptance_criteria(ticket, response.acceptance_criteria, channel, event_log)
 
     if settings.autonomy_mode == "intervention" and requires_human_approval(
         ticket.status, trigger
