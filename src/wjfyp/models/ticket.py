@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -16,6 +17,21 @@ class TicketStatus(str, Enum):
     DONE = "done"
     ESCALATED = "escalated"
     HALTED = "halted"
+
+
+# The default lifetime cap on loop-backs for one ticket, counting every
+# review rejection, empty diff and failed test run. Unlike retry_count
+# it never resets, so the escalated <-> in_progress cycle cannot refill
+# it. Set to 6 from the migrate runs of 19/11/2026. In run1 every arm
+# finished within one or two review rounds, and in run2 the hierarchical
+# arm was still being rejected after 12 rounds of about 10 minutes each,
+# with the CTO repeating the same unmet items from the fourth round on.
+# Six is three times what a ticket that converges needed. With retry_cap
+# at 3 it also allows exactly one escalation and override before the
+# cap, and it bounds a stuck arm at about an hour on qwen3:8b. Override
+# with WJFYP_MAX_REJECTIONS, read once at import like the other
+# WJFYP_ limits.
+MAX_REJECTIONS = int(os.environ.get("WJFYP_MAX_REJECTIONS", "6"))
 
 
 class Ticket(BaseModel):
@@ -55,6 +71,17 @@ class Ticket(BaseModel):
     # fsm.ESCALATION_COUNTED_TRIGGERS and loop.py's _apply_escalation_budget.
     escalation_count: int = 0
     escalation_cap: int = 3
+
+    # Lifetime count of every loop-back this ticket has taken, from a
+    # failed test run, a review rejection or an empty diff. Never reset.
+    # Once it reaches rejection_cap the ticket is halted unmerged instead
+    # of looping again (see MAX_REJECTIONS above, fsm.REJECTION_CAP_TRIGGER
+    # and loop.py's _apply_rejection_cap). The two budgets above both
+    # allow a ticket to cycle many times before it halts, since every
+    # override refills retry_count. In migrate run2 that let one ticket
+    # be rejected more than 12 times.
+    rejection_count: int = 0
+    rejection_cap: int = MAX_REJECTIONS
 
     # Intervention-mode human decision handoff (see cs3ip-dashboard-design
     # memory and orchestrator/loop.py's step()). pending_trigger is the

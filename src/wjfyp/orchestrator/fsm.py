@@ -92,6 +92,13 @@ TRANSITIONS: list[Transition] = [
     # override here: the system is refusing a merge that has nothing in
     # it, not asking a human to weigh in on whether it should.
     Transition(TicketStatus.REVIEW, TicketStatus.IN_PROGRESS, "empty_diff"),
+    # Added 19/11/2026 after migrate run2. Every loop-back counts toward
+    # Ticket.rejection_cap, which never resets. When the count reaches
+    # it the orchestrator halts the ticket unmerged from whichever state
+    # the last loop-back came from, and the run is scored as it stands.
+    # Not gated by requires_approval, like the other overflow triggers.
+    Transition(TicketStatus.AWAITING_TEST, TicketStatus.HALTED, "rejection_cap_exceeded"),
+    Transition(TicketStatus.REVIEW, TicketStatus.HALTED, "rejection_cap_exceeded"),
 ]
 
 _TRANSITION_INDEX: dict[tuple[TicketStatus, str], Transition] = {
@@ -147,6 +154,13 @@ ESCALATION_COUNTED_TRIGGERS: set[tuple[TicketStatus, str]] = {
     (TicketStatus.ESCALATED, "cto_override"),
 }
 
+# The orchestrator-only trigger that halts a ticket once its lifetime
+# loop-back count (Ticket.rejection_count) reaches Ticket.rejection_cap.
+# It counts the same edges as RETRY_COUNTED_TRIGGERS, but its counter is
+# never reset by escalation, so it bounds the whole ticket rather than
+# one stretch between overrides. See loop.py's _apply_rejection_cap.
+REJECTION_CAP_TRIGGER = "rejection_cap_exceeded"
+
 # Every trigger the orchestrator decides for itself - either a budget
 # ran out, or (EMPTY_DIFF_TRIGGER) a structural check failed - never a
 # real choice offered to an agent (see agent_facing_triggers).
@@ -154,6 +168,7 @@ ORCHESTRATOR_ONLY_TRIGGERS: set[str] = {
     RETRY_OVERFLOW_TRIGGER,
     ESCALATION_OVERFLOW_TRIGGER,
     EMPTY_DIFF_TRIGGER,
+    REJECTION_CAP_TRIGGER,
 }
 
 

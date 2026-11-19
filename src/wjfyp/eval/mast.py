@@ -88,6 +88,9 @@ def _rule_based_tags(status: TicketStatus) -> list[MastFailureMode]:
     "cto_cannot_resolve"), meaning the run ended with the requirement
     unresolved - Premature Termination (FM-3.1), on top of the same
     Step Repetition tag since HALTED is only reachable via ESCALATED.
+    Since 19/11/2026 HALTED is also reached through escalation_cap_exceeded
+    and rejection_cap_exceeded. Both mean a loop-back budget ran out with
+    the work unmerged, so the same two tags still hold.
 
     Known limitation, not hidden: this only looks at the *final* status,
     so a ticket that escalated and later recovered via cto_override to

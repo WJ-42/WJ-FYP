@@ -13,6 +13,7 @@ from wjfyp.orchestrator.fsm import (
     EMPTY_DIFF_TRIGGER,
     ESCALATION_COUNTED_TRIGGERS,
     ESCALATION_OVERFLOW_TRIGGER,
+    REJECTION_CAP_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
     RETRY_OVERFLOW_TRIGGER,
     active_role,
@@ -103,6 +104,44 @@ def _apply_escalation_budget(ticket: Ticket, trigger: str) -> tuple[Ticket, str]
         "escalation_cap",
         ESCALATION_OVERFLOW_TRIGGER,
     )
+
+
+def _apply_rejection_cap(
+    ticket: Ticket, trigger: str, channel: Channel, event_log: EventLog
+) -> tuple[Ticket, str]:
+    """The lifetime cap on loop-backs (Ticket.rejection_count and
+    rejection_cap). Counts the same edges as _apply_retry_budget, but the
+    count is never reset, so a ticket cannot keep cycling through
+    escalation and override until max_steps runs out. When the count
+    reaches the cap the trigger becomes REJECTION_CAP_TRIGGER, which
+    halts the ticket unmerged, and a system message records why.
+
+    Call it after _apply_empty_diff_guard, so an empty diff counts, and
+    before _apply_retry_budget, so the cap wins over an escalation that
+    would only have refilled the retry budget.
+    """
+    if (ticket.status, trigger) not in RETRY_COUNTED_TRIGGERS:
+        return ticket, trigger
+    count = ticket.rejection_count + 1
+    ticket = ticket.model_copy(update={"rejection_count": count})
+    if count < ticket.rejection_cap:
+        return ticket, trigger
+    event_log.append_message(
+        Message(
+            sender=AgentRef(role="system", instance_id="orchestrator"),
+            channel_id=channel.id,
+            type=MessageType.STATUS_UPDATE,
+            ticket_ref=ticket.id,
+            content=MessageContent(
+                text=(
+                    f"This ticket has now been sent back {count} times, which reaches "
+                    f"the cap of {ticket.rejection_cap} total rejections, so it is halted "
+                    "without a merge. The run ends here and is scored as it stands."
+                )
+            ),
+        )
+    )
+    return ticket, REJECTION_CAP_TRIGGER
 
 
 def _apply_empty_diff_guard(
@@ -278,6 +317,7 @@ def _step_awaiting_test(
     event_log.append_message(message)
 
     trigger = "tests_passed" if result.passed else "tests_failed"
+    ticket, trigger = _apply_rejection_cap(ticket, trigger, channel, event_log)
     ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
     sandbox.close()  # the attempt is over either way
@@ -387,6 +427,7 @@ def step(
         return StepResult(ticket=ticket, advanced=False, paused_trigger=trigger, sandbox=sandbox)
 
     ticket, trigger = _apply_empty_diff_guard(ticket, trigger, workspace)
+    ticket, trigger = _apply_rejection_cap(ticket, trigger, channel, event_log)
     ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)
@@ -496,6 +537,7 @@ def resume(
             )
         )
     ticket, trigger = _apply_empty_diff_guard(ticket, trigger, workspace)
+    ticket, trigger = _apply_rejection_cap(ticket, trigger, channel, event_log)
     ticket, trigger = _apply_retry_budget(ticket, trigger)
     ticket, trigger = _apply_escalation_budget(ticket, trigger)
     ticket = _apply_transition(ticket, trigger, event_log, workspace)

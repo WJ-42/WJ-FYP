@@ -116,11 +116,17 @@ _ROLE_RESPONSIBILITIES: dict[tuple[str, TicketStatus | None], str] = {
         "CTO's subsystem-level scope and turn it into a concrete spec an engineer can "
         "implement against. Put the spec's acceptance criteria in the "
         "`acceptance_criteria` field of your outcome call, as a list of 2 to 8 short "
-        "statements. Together they must cover the whole task as the ticket describes "
-        "it, not just its first part. Make each one checkable by reading the code "
-        "change, for example naming the file that must change and what it must or "
-        "must not contain. The engineer builds against these criteria and the "
-        "reviewer approves only if every one of them is visibly met."
+        "statements. Every criterion must trace back to something the ticket's task "
+        "text actually asks for. Together they must cover the whole task as the "
+        "ticket describes it, not just its first part. Phrase each one as a concrete "
+        "change that can be checked by reading the code change, and where the task "
+        "names files or content, name them and say what they must or must not "
+        "contain. Never add a requirement the task does not state. That rules out "
+        "performance or speed claims, extra configuration or settings the task never "
+        "mentions, and untestable items such as \"all existing functionality must be "
+        "maintained\" that no diff could show. If the task does not ask for it, leave "
+        "it out. The engineer builds against these criteria and the reviewer approves "
+        "only if every one of them is visibly met."
     ),
     ("cto", TicketStatus.REVIEW): (
         "You are the CTO of a small software company, reviewing a submitted "
@@ -191,7 +197,9 @@ _ACCEPTANCE_CRITERIA_PROPERTY: dict[str, Any] = {
     "items": {"type": "string"},
     "description": (
         "2 to 8 short, checkable acceptance criteria that together cover the whole "
-        "task. The reviewer approves only if the code change visibly meets every one."
+        "task. Each one must come from something the task text asks for, never an "
+        "added requirement. The reviewer approves only if the code change visibly "
+        "meets every one."
     ),
 }
 

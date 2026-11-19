@@ -13,6 +13,7 @@ from wjfyp.orchestrator.fsm import (
     EMPTY_DIFF_TRIGGER,
     ESCALATION_COUNTED_TRIGGERS,
     ESCALATION_OVERFLOW_TRIGGER,
+    REJECTION_CAP_TRIGGER,
     RETRY_COUNTED_TRIGGERS,
     RETRY_OVERFLOW_TRIGGER,
     agent_facing_triggers,
@@ -119,6 +120,16 @@ class EmptyDiffFsmTest(unittest.TestCase):
         self.assertEqual(
             set(agent_facing_triggers(TicketStatus.REVIEW)), {"approved", "changes_requested"}
         )
+
+
+class RejectionCapFsmTest(unittest.TestCase):
+    def test_both_loop_back_states_halt_on_the_rejection_cap(self) -> None:
+        for status in (TicketStatus.AWAITING_TEST, TicketStatus.REVIEW):
+            self.assertEqual(next_state(status, REJECTION_CAP_TRIGGER), TicketStatus.HALTED)
+
+    def test_the_rejection_cap_is_never_offered_to_an_agent(self) -> None:
+        self.assertIn(REJECTION_CAP_TRIGGER, valid_triggers(TicketStatus.REVIEW))
+        self.assertNotIn(REJECTION_CAP_TRIGGER, agent_facing_triggers(TicketStatus.REVIEW))
 
 
 if __name__ == "__main__":

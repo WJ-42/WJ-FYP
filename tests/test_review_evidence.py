@@ -415,6 +415,30 @@ class BothBackendsTest(unittest.TestCase):
         system = claude_client.calls[0]["system"][0]["text"]
         self.assertIn("2 to 8", system)
 
+    def test_product_is_told_to_ground_every_criterion_in_the_task(self) -> None:
+        args = {**_ARGS, "trigger": "spec_ready", "acceptance_criteria": ["a", "b"]}
+        claude_client = _AnthropicClient(args)
+        ClaudeAgent(PRODUCT, "product-1", client=claude_client).invoke(_backlog_context())
+        openai_client = _OpenAIClient(args)
+        OpenAIAgent(PRODUCT, "product-1", client=openai_client).invoke(_backlog_context())
+
+        system = claude_client.calls[0]["system"][0]["text"]
+        self.assertEqual(system, openai_client.calls[0]["messages"][0]["content"])
+        for needle in (
+            "must trace back to something the ticket's task text actually asks for",
+            "where the task names files or content, name them",
+            "Never add a requirement the task does not state",
+            "performance or speed claims",
+            "extra configuration or settings the task never mentions",
+            "all existing functionality must be maintained",
+        ):
+            self.assertIn(needle, system)
+        schema = claude_client.calls[0]["tools"][0]["input_schema"]
+        self.assertIn(
+            "must come from something the task text asks for",
+            schema["properties"]["acceptance_criteria"]["description"],
+        )
+
     def test_criteria_are_only_offered_at_backlog(self) -> None:
         client = _AnthropicClient({**_ARGS, "trigger": "approved"})
         resp = ClaudeAgent(CTO, "cto-1", client=client).invoke(_review_context())

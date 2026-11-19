@@ -7,7 +7,9 @@ per attempt), not agent intelligence or real code execution.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -676,6 +678,142 @@ class OrchestratorLoopTest(unittest.TestCase):
             )
 
         self.assertTrue(sandbox.closed)
+
+
+class RejectionCapTest(unittest.TestCase):
+    """The lifetime cap on loop-backs (Ticket.rejection_cap), added after
+    migrate run2 on 19/11/2026, where escalation kept refilling the retry
+    budget and one ticket was rejected more than 12 times. Every test
+    script here is exact, so an extra loop-back past the cap would invoke
+    an agent with an empty script and fail with IndexError.
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.event_log = EventLog(Path(self._tmpdir.name) / "eventlog.db")
+        self.addCleanup(self.event_log.close)
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def _agents(self, **scripts: list[str]) -> dict[str, list]:
+        return {
+            role: [ScriptedAgent(role, f"{role}-1", script)]
+            for role, script in scripts.items()
+        }
+
+    def _texts(self, channel: Channel) -> list[str]:
+        return [m.content.text for m in self.event_log.get_channel_history(channel.id, 200)]
+
+    def test_review_rejections_halt_the_ticket_at_the_cap(self) -> None:
+        ticket = Ticket(id="TCK-1", title="t", description="...", retry_cap=10, rejection_cap=3)
+        channel = _make_channel(ticket)
+        agents = self._agents(
+            cto=["decomposed", "changes_requested", "changes_requested", "changes_requested"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission", "code_submission", "code_submission"],
+        )
+        factory = _sandbox_factory_with_results([_test_result(passed=True) for _ in range(3)])
+
+        result = run(ticket, channel, self.event_log, agents, factory, Settings())
+
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.rejection_count, 3)
+        self.assertEqual(self.event_log.get_ticket("TCK-1").status, TicketStatus.HALTED)
+        self.assertTrue(any("halted without a merge" in t for t in self._texts(channel)))
+
+    def test_failed_test_runs_count_toward_the_cap(self) -> None:
+        ticket = Ticket(id="TCK-1", title="t", description="...", retry_cap=10, rejection_cap=2)
+        channel = _make_channel(ticket)
+        agents = self._agents(
+            cto=["decomposed"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission", "code_submission"],
+        )
+        factory = _sandbox_factory_with_results([_test_result(passed=False) for _ in range(2)])
+
+        result = run(ticket, channel, self.event_log, agents, factory, Settings())
+
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.rejection_count, 2)
+
+    def test_the_count_survives_escalation_while_the_retry_count_resets(self) -> None:
+        # retry_cap=1, so the second rejection escalates and the override
+        # refills retry_count. rejection_count must carry on from 2, so
+        # the fourth rejection halts even though escalation_cap allows
+        # several more overrides.
+        ticket = Ticket(
+            id="TCK-1", title="t", description="...",
+            retry_cap=1, escalation_cap=5, rejection_cap=4,
+        )
+        channel = _make_channel(ticket)
+        agents = self._agents(
+            cto=[
+                "decomposed",
+                "changes_requested",
+                "changes_requested",  # escalates, retry_count over cap
+                "cto_override",  # retry_count back to 0
+                "changes_requested",
+                "changes_requested",  # fourth in total, halts
+            ],
+            product=["spec_ready"],
+            engineering=["assigned"] + ["code_submission"] * 4,
+        )
+        factory = _sandbox_factory_with_results([_test_result(passed=True) for _ in range(4)])
+
+        result = run(ticket, channel, self.event_log, agents, factory, Settings())
+
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.rejection_count, 4)
+        self.assertEqual(result.ticket.escalation_count, 1)
+        self.assertEqual(result.ticket.retry_count, 1)  # reset at escalated, then one more
+
+    def test_a_human_rejection_through_resume_counts_too(self) -> None:
+        ticket = Ticket(id="TCK-1", title="t", description="...", rejection_cap=1)
+        channel = _make_channel(ticket)
+        settings = Settings(autonomy_mode="intervention")
+        agents = self._agents(
+            cto=["decomposed", "changes_requested"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission"],
+        )
+        factory = _sandbox_factory_with_results([_test_result(passed=True)])
+
+        paused = run(ticket, channel, self.event_log, agents, factory, settings)
+        self.assertEqual(paused.paused_trigger, "changes_requested")
+
+        result = resume(
+            paused.ticket, "changes_requested", channel, self.event_log, agents, factory, settings
+        )
+
+        self.assertEqual(result.ticket.status, TicketStatus.HALTED)
+        self.assertEqual(result.ticket.rejection_count, 1)
+
+    def test_an_approval_does_not_count(self) -> None:
+        ticket = Ticket(id="TCK-1", title="t", description="...", rejection_cap=2)
+        channel = _make_channel(ticket)
+        agents = self._agents(
+            cto=["decomposed", "changes_requested", "approved"],
+            product=["spec_ready"],
+            engineering=["assigned", "code_submission", "code_submission"],
+        )
+        factory = _sandbox_factory_with_results([_test_result(passed=True) for _ in range(2)])
+
+        result = run(ticket, channel, self.event_log, agents, factory, Settings())
+
+        self.assertEqual(result.ticket.status, TicketStatus.DONE)
+        self.assertEqual(result.ticket.rejection_count, 1)
+
+    def test_the_default_cap_is_6_and_the_env_var_overrides_it(self) -> None:
+        code = "from wjfyp.models.ticket import Ticket; print(Ticket(id='a', title='b', description='c').rejection_cap)"
+        env = {k: v for k, v in os.environ.items() if k != "WJFYP_MAX_REJECTIONS"}
+        default = subprocess.run(
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        )
+        overridden = subprocess.run(
+            [sys.executable, "-c", code], env={**env, "WJFYP_MAX_REJECTIONS": "9"},
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(default.stdout.strip(), "6")
+        self.assertEqual(overridden.stdout.strip(), "9")
 
 
 if __name__ == "__main__":
